@@ -1,4 +1,4 @@
-omnicode-doctor — 2026-07-18 13:01 — host Caspers-MacBook-Pro
+omnicode-doctor — 2026-07-18 13:27 — host Caspers-MacBook-Pro
 
 == core binaries ==
 [PASS] tmux on PATH
@@ -70,14 +70,17 @@ omnicode-doctor — 2026-07-18 13:01 — host Caspers-MacBook-Pro
 [PASS] rjv skill present
 [PASS] agent-harnesses MCP configured
 
+== goal ledger (durable cross-harness goals) ==
+[PASS] goal CLI executable
+[PASS] goal round-trip (new->loop->DONE on green acceptance) works
+[PASS] all goal files parse
+       open goals: 0
+
 == state hygiene ==
 [PASS] health.json valid
 agy      COOLDOWN until Thu 04:19 — Google free-tier quota (Individual quota reached, observed 2026-07-17 09:19)
-[PASS] ~/.lanes size OK (13MB)
+[PASS] ~/.lanes size OK (14MB)
 [PASS] no stale lane sessions
 
-== LIVE end-to-end probe (burns a little quota) ==
-[PASS] live prompt through grok lane returned correctly
-
 == summary ==
-PASS=58 WARN=0 FAIL=0
+PASS=60 WARN=0 FAIL=0

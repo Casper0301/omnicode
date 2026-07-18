@@ -159,6 +159,24 @@ assert 'agent-harnesses' in d.get('mcpServers',{})" 2>/dev/null; then
   pass "agent-harnesses MCP configured"
 else warn "agent-harnesses MCP not in ~/.claude.json"; fi
 
+# ---------------------------------------------------------------- goal ledger
+sect "goal ledger (durable cross-harness goals)"
+if [ -x "$H/.local/bin/goal" ]; then pass "goal CLI executable"; else fail "goal CLI missing"; fi
+GS="doctor-probe-$$"
+if goal new "$GS" --objective "doctor functional probe" --acceptance "true" --cwd /tmp >/dev/null 2>&1 \
+   && goal loop "$GS" 2>/dev/null | grep -q "DONE"; then
+  pass "goal round-trip (new->loop->DONE on green acceptance) works"
+else fail "goal round-trip failed"; fi
+rm -f "$H/.omnicode/goals/$GS.json" "$H/.omnicode/goals/$GS.events.jsonl"
+BADG=0
+for gj in "$H"/.omnicode/goals/*.json; do
+  [ -e "$gj" ] || continue
+  python3 -c "import json;json.load(open('$gj'))" 2>/dev/null || { BADG=1; fail "corrupt goal file: $gj"; }
+done
+[ $BADG -eq 0 ] && pass "all goal files parse"
+OPEN=$(goal list 2>/dev/null | grep -c '^open' || true)
+say "       open goals: ${OPEN:-0}"
+
 # ---------------------------------------------------------------- state hygiene
 sect "state hygiene"
 if python3 -c "import json;json.load(open('$H/.lanes/health.json'))" 2>/dev/null; then

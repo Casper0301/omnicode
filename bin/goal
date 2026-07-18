@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""goal — omnicode durable goal ledger (2026-07-18).
+
+The goal lives OUTSIDE any model: a JSON spec with machine-checkable acceptance
+commands, plus an append-only event log. Any harness (Claude Code, Codex CLI or
+app, grok, glm, agy) reads `goal step` to pick up work and runs `goal check` to
+prove it done. The outer loop that drives it lives in the harness (Claude /loop,
+Codex Goal Mode, cron); this CLI is the state.
+
+  goal new <slug> --objective TEXT [--acceptance CMD]... [--cwd DIR] [--class C]
+  goal list                         all goals + status
+  goal show <slug>                  full record + recent events
+  goal step <slug>                  RESUME PACKET: objective, state, next action,
+                                    acceptance, suggested lane — feed this to any model
+  goal check <slug>                 run acceptance commands; all green -> status done
+  goal next <slug> [TEXT]           get/set the single next action
+  goal note <slug> TEXT             append a checkpoint/blocker/decision note
+  goal lane <slug> LANE TEXT        record which lane did what
+  goal done <slug> / abandon <slug> TEXT
+  goal loop <slug>                  one outer-loop tick: check; exit 0 = DONE,
+                                    exit 3 = work remains (packet printed)
+
+Files: ~/.omnicode/goals/<slug>.json (spec+state, atomic writes)
+       ~/.omnicode/goals/<slug>.events.jsonl (append-only transcript)
+"""
+import json, os, shlex, subprocess, sys, time
+
+GDIR = os.path.expanduser("~/.omnicode/goals")
+LANE_PICK = os.path.expanduser("~/.local/bin/lane-pick")
+VALID_CLASSES = ["code", "correctness", "langchain", "longcontext",
+                 "research", "review", "ui", "architecture"]
+
+
+def gpath(slug): return os.path.join(GDIR, f"{slug}.json")
+def epath(slug): return os.path.join(GDIR, f"{slug}.events.jsonl")
+
+
+def load(slug):
+    try:
+        with open(gpath(slug)) as f:
+            return json.load(f)
+    except OSError:
+        sys.exit(f"no goal '{slug}' — see: goal list")
+    except ValueError as e:
+        sys.exit(f"goal '{slug}' is corrupt JSON: {e}")
+
+
+def save(g):
+    os.makedirs(GDIR, exist_ok=True)
+    g["updated"] = now()
+    tmp = gpath(g["slug"]) + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(g, f, indent=1)
+    os.replace(tmp, gpath(g["slug"]))
+
+
+def event(slug, etype, data):
+    os.makedirs(GDIR, exist_ok=True)
+    with open(epath(slug), "a") as f:
+        f.write(json.dumps({"ts": now(), "type": etype, "data": data}) + "\n")
+
+
+def now(): return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def recent_events(slug, n=8):
+    try:
+        with open(epath(slug)) as f:
+            lines = f.readlines()[-n:]
+        return [json.loads(l) for l in lines]
+    except OSError:
+        return []
+
+
+def suggest_lane(gclass):
+    try:
+        r = subprocess.run([LANE_PICK, gclass], capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else f"(none healthy — lane-pick status)"
+    except Exception:
+        return "(lane-pick unavailable)"
+
+
+def run_check(g, record=True):
+    """Run every acceptance command in cwd. Returns (all_green, results)."""
+    results = []
+    for cmd in g["acceptance"]:
+        try:
+            r = subprocess.run(cmd, shell=True, cwd=g.get("cwd") or None,
+                               capture_output=True, text=True, timeout=300)
+            ok = r.returncode == 0
+            tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or [""]
+            results.append((ok, cmd, tail[0][:200]))
+        except subprocess.TimeoutExpired:
+            results.append((False, cmd, "TIMEOUT after 300s"))
+        except Exception as e:
+            results.append((False, cmd, f"error: {e}"))
+    green = all(ok for ok, _, _ in results)
+    if record:
+        event(g["slug"], "check", {"green": green,
+                                   "results": [{"ok": o, "cmd": c, "tail": t} for o, c, t in results]})
+    return green, results
+
+
+def print_check(results):
+    for ok, cmd, tail in results:
+        print(f"  {'PASS' if ok else 'FAIL'}  {cmd}" + (f"   [{tail}]" if not ok and tail else ""))
+
+
+def packet(g):
+    lane = suggest_lane(g.get("class", "code"))
+    lines = [
+        f"=== OMNICODE GOAL: {g['slug']} ({g['status']}) ===",
+        f"OBJECTIVE: {g['objective']}",
+        f"CWD: {g.get('cwd') or '(none set)'}",
+        "NEXT ACTION: " + (g.get("next_action")
+                           or "(unset — decide from objective + events, then: goal next "
+                              + g["slug"] + " '...')"),
+        f"SUGGESTED LANE for class '{g.get('class','code')}': {lane}   (route via lane-pick; report LANE visibly)",
+        "ACCEPTANCE (ALL must exit 0 — this defines done, not your judgment):",
+    ]
+    lines += [f"  $ {c}" for c in g["acceptance"]]
+    if g.get("blockers"):
+        lines.append("BLOCKERS: " + "; ".join(g["blockers"]))
+    ev = recent_events(g["slug"])
+    if ev:
+        lines.append("RECENT EVENTS:")
+        for e in ev:
+            d = e["data"]
+            summary = d if isinstance(d, str) else (
+                f"check green={d.get('green')}" if e["type"] == "check" else json.dumps(d)[:120])
+            lines.append(f"  {e['ts']} [{e['type']}] {summary}")
+    lines += [
+        "PROTOCOL: do the next action (through the suggested lane when it is implementation "
+        "work), record with `goal lane`/`goal note`, set the new `goal next`, then run "
+        f"`goal check {g['slug']}`. Green = done; otherwise continue. Never claim done "
+        "without a green check.",
+    ]
+    return "\n".join(lines)
+
+
+def main():
+    a = sys.argv[1:]
+    if not a:
+        print(__doc__); return 2
+    cmd = a[0]
+
+    if cmd == "new":
+        if len(a) < 2: sys.exit("usage: goal new <slug> --objective TEXT [--acceptance CMD]... [--cwd DIR] [--class C]")
+        slug = a[1]
+        if os.path.exists(gpath(slug)): sys.exit(f"goal '{slug}' already exists")
+        if not all(ch.isalnum() or ch in "-_" for ch in slug): sys.exit("slug: [a-zA-Z0-9-_] only")
+        obj, acc, cwd, gclass = None, [], os.getcwd(), "code"
+        i = 2
+        while i < len(a):
+            if a[i] == "--objective": obj = a[i+1]; i += 2
+            elif a[i] == "--acceptance": acc.append(a[i+1]); i += 2
+            elif a[i] == "--cwd": cwd = os.path.abspath(os.path.expanduser(a[i+1])); i += 2
+            elif a[i] == "--class":
+                gclass = a[i+1]; i += 2
+                if gclass not in VALID_CLASSES: sys.exit(f"class must be one of {VALID_CLASSES}")
+            else: sys.exit(f"unknown flag {a[i]}")
+        if not obj: sys.exit("--objective is required")
+        if not acc: sys.exit("at least one --acceptance command is required — "
+                             "a goal without a machine-checkable stop condition is a wish")
+        g = {"slug": slug, "objective": obj, "acceptance": acc, "cwd": cwd,
+             "class": gclass, "status": "open", "created": now(),
+             "next_action": None, "blockers": [], "artifacts": []}
+        save(g); event(slug, "status", f"created (class={gclass}, cwd={cwd})")
+        print(f"goal '{slug}' created. Resume packet: goal step {slug}")
+        return 0
+
+    if cmd == "list":
+        goals = sorted(f[:-5] for f in os.listdir(GDIR) if f.endswith(".json")) if os.path.isdir(GDIR) else []
+        if not goals: print("no goals — create one: goal new <slug> --objective ... --acceptance ..."); return 0
+        for s in goals:
+            g = load(s)
+            print(f"{g['status']:9} {s:24} {g['objective'][:70]}")
+        return 0
+
+    if len(a) < 2: sys.exit(f"usage: goal {cmd} <slug> ...")
+    slug = a[1]
+
+    if cmd == "show":
+        g = load(slug)
+        print(json.dumps(g, indent=1))
+        ev = recent_events(slug, 12)
+        if ev:
+            print("--- recent events ---")
+            for e in ev: print(f"{e['ts']} [{e['type']}] {json.dumps(e['data'])[:160]}")
+        return 0
+
+    if cmd == "step":
+        g = load(slug)
+        print(packet(g)); return 0
+
+    if cmd == "check":
+        g = load(slug)
+        green, results = run_check(g)
+        print_check(results)
+        if green and g["status"] == "open":
+            g["status"] = "done"; save(g); event(slug, "status", "done (acceptance green)")
+            print(f"ALL GREEN — goal '{slug}' marked done.")
+        elif green:
+            print("all green.")
+        else:
+            print("not done yet.")
+        return 0 if green else 1
+
+    if cmd == "next":
+        g = load(slug)
+        if len(a) > 2:
+            g["next_action"] = " ".join(a[2:]); save(g); event(slug, "next", g["next_action"])
+            print(f"next: {g['next_action']}")
+        else:
+            print(g.get("next_action") or "(unset)")
+        return 0
+
+    if cmd == "note":
+        if len(a) < 3: sys.exit("usage: goal note <slug> TEXT")
+        load(slug); event(slug, "note", " ".join(a[2:])); print("noted."); return 0
+
+    if cmd == "lane":
+        if len(a) < 4: sys.exit("usage: goal lane <slug> LANE TEXT")
+        load(slug); event(slug, "lane", {"lane": a[2], "what": " ".join(a[3:])})
+        print(f"recorded: {a[2]}"); return 0
+
+    if cmd == "done":
+        g = load(slug)
+        green, results = run_check(g)
+        if not green:
+            print_check(results)
+            sys.exit(f"refusing: acceptance not green. A goal is done when `goal check {slug}` passes.")
+        g["status"] = "done"; save(g); event(slug, "status", "done (manual, acceptance green)")
+        print("done."); return 0
+
+    if cmd == "abandon":
+        if len(a) < 3: sys.exit("usage: goal abandon <slug> WHY")
+        g = load(slug); g["status"] = "abandoned"; save(g)
+        event(slug, "status", f"abandoned: {' '.join(a[2:])}"); print("abandoned."); return 0
+
+    if cmd == "loop":
+        g = load(slug)
+        if g["status"] != "open":
+            print(f"goal '{slug}' is {g['status']} — nothing to do."); return 0
+        green, results = run_check(g)
+        if green:
+            g["status"] = "done"; save(g); event(slug, "status", "done (loop check green)")
+            print(f"DONE — goal '{slug}' acceptance green."); return 0
+        print_check(results); print()
+        print(packet(g))
+        return 3
+
+    sys.exit(f"unknown command '{cmd}' — run `goal` for usage")
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

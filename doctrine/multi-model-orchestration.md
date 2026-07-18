@@ -25,6 +25,20 @@ metadata:
 
 Lanes run in terminals; `uib` (`~/.local/bin/uib` → `~/.uib/uib.mjs`, Playwright daemon) is the omnicode browser: persistent clean-profile Chromium the models drive by CLI. `uib open <url> [--vp 375x812]` · `shot <png> [--full]` · `snapshot` (a11y tree with @eN refs) · `click @eN|<css>` · `fill` · `press` · `eval` · `console` · `url` · `status` · `stop`. Iterative UI work: dev server → `uib open` → edit code → `uib shot` → READ the png (vision) → repeat. Vision-capable lanes (claude, glm, codex via view_image) self-review screenshots; grok lanes return the png path for the architect to review. Daemon idles out after 30 min; state (page, refs, console buffer) survives between invocations. **uib is clean-profile ONLY — Casper's authenticated browsing stays in `agent-browser`/Aside and remains BANNED for writer sandboxes/lanes.** `ui` ladder class routes UI review work.
 
+## Goal ledger — durable cross-harness goals (2026-07-18)
+
+Research-backed design (Codex Goal Mode + LangGraph checkpointer + Omnigent sessions + Anthropic multi-agent pattern, lanes-researched 2026-07-18): **the goal lives outside any model** — models are replaceable workers; acceptance COMMANDS define done, never model judgment. `goal` CLI (`~/.local/bin/goal`, state in `~/.omnicode/goals/<slug>.json` + append-only `.events.jsonl`):
+
+- `goal new <slug> --objective "…" --acceptance "cmd" [--acceptance …] [--class code|correctness|…] [--cwd DIR]` — acceptance is REQUIRED ("a goal without a machine-checkable stop condition is a wish").
+- **`goal step <slug>`** = the model-agnostic resume packet (objective, next action, suggested lane via lane-pick, acceptance, recent events, protocol). ANY harness picks up work by reading it.
+- `goal check <slug>` runs acceptance; all green → status done. `goal done` REFUSES while red. `goal loop <slug>` = one outer-loop tick: exit 0 DONE / exit 3 work-remains (packet printed). Record work: `goal lane <slug> <lane> "what"` / `goal note` / `goal next`.
+
+**Outer loop per harness** (the harness owns cadence, the ledger owns state):
+- Claude Code: `/loop` on "run `goal loop <slug>`; if exit 3, execute the packet (implementation via lanes), then repeat" — or cron/schedule for multi-day.
+- Codex CLI/app: `/goal` (Goal Mode) with objective: "Work omnicode goal <slug>: run `~/.local/bin/goal step <slug>` and follow its PROTOCOL until `goal check <slug>` is green." Sol's persistence + our routing.
+- grok/glm/agy: paste `goal step` output as the prompt; they read the shared brain so the protocol is known.
+- **Economy rule:** loop-driving is cheap-model work (grok/glm/opusplan) because acceptance, not judgment, decides done. Fable/Sol-at-max only at judgment points. NEVER Sol `ultra` (spawns internal subagents — duplicates omnicode's own fan-out at premium token cost).
+
 ## Routing (architect picks per task)
 
 - Pure coding / well-specified → **grok default** — ONLY with a complete 5-part spec; grok freestyles where the spec is silent (2026-07-09 eval), so the lane bounces incomplete specs back (`STATUS: spec-incomplete`) instead of running. Correctness-critical single lane → codex (GPT-5.6-Sol max). agy = free alt.

@@ -12,6 +12,9 @@ echo "== pull: live system -> $REPO"
 cp "$H/.local/bin/lanes"      "$REPO/bin/lanes"
 cp "$H/.local/bin/lane-pick"  "$REPO/bin/lane-pick"
 cp "$H/.local/bin/uib"        "$REPO/bin/uib"
+if [ "$H/.local/bin/goal" -nt "$REPO/bin/goal" ] 2>/dev/null; then
+  cp "$H/.local/bin/goal" "$REPO/bin/goal"
+fi
 # omnicode-doctor is authored IN the repo; only pull it back if the live copy is newer
 if [ "$H/.local/bin/omnicode-doctor" -nt "$REPO/bin/omnicode-doctor" ] 2>/dev/null; then
   cp "$H/.local/bin/omnicode-doctor" "$REPO/bin/omnicode-doctor"
