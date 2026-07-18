@@ -86,39 +86,42 @@ class LanePickAllowlistTest(unittest.TestCase):
 
 class ApplySafetyTest(unittest.TestCase):
     def test_apply_refuses_to_replace_existing_skill_content(self):
-        for collision in ("file", "directory"):
-            with self.subTest(collision=collision), tempfile.TemporaryDirectory() as temp:
-                home = Path(temp)
-                (home / ".local" / "bin").mkdir(parents=True)
-                (home / ".uib" / "node_modules" / "playwright").mkdir(parents=True)
-                skill_dir = home / ".claude" / "skills"
-                skill_dir.mkdir(parents=True)
-                (home / "Library" / "LaunchAgents").mkdir(parents=True)
-                target = skill_dir / "omnicode"
-                if collision == "file":
-                    target.write_text("keep me\n", encoding="utf-8")
-                else:
-                    target.mkdir()
-                    (target / "keep-me").write_text("keep me\n", encoding="utf-8")
+        for root in (".agents", ".claude"):
+            for collision in ("file", "directory"):
+                with self.subTest(root=root, collision=collision), tempfile.TemporaryDirectory() as temp:
+                    self._assert_apply_refuses_collision(Path(temp), root, collision)
 
-                result = subprocess.run(
-                    [str(ROOT / "scripts" / "apply.sh")],
-                    env={**os.environ, "HOME": str(home)},
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    check=False,
-                )
+    def _assert_apply_refuses_collision(self, home, root, collision):
+        (home / ".local" / "bin").mkdir(parents=True)
+        (home / ".uib" / "node_modules" / "playwright").mkdir(parents=True)
+        (home / ".agents" / "skills").mkdir(parents=True)
+        (home / ".claude" / "skills").mkdir(parents=True)
+        (home / "Library" / "LaunchAgents").mkdir(parents=True)
+        target = home / root / "skills" / "omnicode"
+        if collision == "file":
+            target.write_text("keep me\n", encoding="utf-8")
+        else:
+            target.mkdir()
+            (target / "keep-me").write_text("keep me\n", encoding="utf-8")
 
-                self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(target.is_symlink())
-                if collision == "file":
-                    self.assertTrue(target.is_file())
-                    self.assertEqual(target.read_text(encoding="utf-8"), "keep me\n")
-                else:
-                    self.assertTrue(target.is_dir())
-                    self.assertEqual((target / "keep-me").read_text(encoding="utf-8"), "keep me\n")
-                self.assertIn("refus", result.stderr.lower())
+        result = subprocess.run(
+            [str(ROOT / "scripts" / "apply.sh")],
+            env={**os.environ, "HOME": str(home)},
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(target.is_symlink())
+        if collision == "file":
+            self.assertTrue(target.is_file())
+            self.assertEqual(target.read_text(encoding="utf-8"), "keep me\n")
+        else:
+            self.assertTrue(target.is_dir())
+            self.assertEqual((target / "keep-me").read_text(encoding="utf-8"), "keep me\n")
+        self.assertIn("refus", result.stderr.lower())
 
 
 if __name__ == "__main__":

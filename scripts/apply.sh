@@ -4,12 +4,17 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 H="$HOME"
-SKILL_LINK="$H/.claude/skills/omnicode"
+SKILL_LINKS=(
+  "$H/.agents/skills/omnicode"
+  "$H/.claude/skills/omnicode"
+)
 
-if [[ -e "$SKILL_LINK" && ! -L "$SKILL_LINK" ]]; then
-  echo "refusing to replace existing non-symlink skill content: $SKILL_LINK" >&2
-  exit 1
-fi
+for skill_link in "${SKILL_LINKS[@]}"; do
+  if [[ -e "$skill_link" && ! -L "$skill_link" ]]; then
+    echo "refusing to replace existing non-symlink skill content: $skill_link" >&2
+    exit 1
+  fi
+done
 
 echo "== apply: $REPO -> live system"
 
@@ -18,7 +23,7 @@ install -m 755 "$REPO/bin/lane-pick"        "$H/.local/bin/lane-pick"
 install -m 755 "$REPO/bin/uib"              "$H/.local/bin/uib"
 install -m 755 "$REPO/bin/omnicode-doctor"  "$H/.local/bin/omnicode-doctor"
 
-mkdir -p "$H/.uib" "$H/.claude/omnicode" "$H/.claude/agents" "$H/.claude/workflows" "$H/.claude/skills" "$H/.omnicode"
+mkdir -p "$H/.uib" "$H/.claude/omnicode" "$H/.claude/agents" "$H/.claude/workflows" "$H/.claude/skills" "$H/.agents/skills" "$H/.omnicode"
 cp "$REPO/uib/uib.mjs"      "$H/.uib/uib.mjs"
 cp "$REPO/uib/package.json" "$H/.uib/package.json"
 [ -f "$REPO/uib/README.md" ] && cp "$REPO/uib/README.md" "$H/.uib/README.md"
@@ -35,8 +40,10 @@ done
 
 cp "$REPO/workflows/race-and-judge.mjs" "$H/.claude/workflows/race-and-judge.mjs"
 
-# Skill: symlink so the repo stays source of truth (~/.claude/skills is real fs — probed 2026-07-18)
-ln -sfn "$REPO/skill" "$SKILL_LINK"
+# Skill: shared discovery root plus Claude's compatibility root. The repo stays source of truth.
+for skill_link in "${SKILL_LINKS[@]}"; do
+  ln -sfn "$REPO/skill" "$skill_link"
+done
 
 # Daily doctor (silent monitor): launchd 08:45, records to ~/.omnicode/
 cp "$REPO/launchd/com.casper.omnicode-doctor.plist" "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist"
