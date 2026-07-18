@@ -4,7 +4,7 @@
 Resolves a task class to the strongest currently-healthy lane, tracks
 rate-limit cooldowns, and parses vendor CLI logs for quota exhaustion.
 
-  lane-pick <class>                 print first healthy lane for the class (exit 3 if none)
+  lane-pick <class> [--allow A,B]   print first healthy allowed lane (exit 3 if none)
   lane-pick mark <lane> [sec] [why] put lane (and its quota group) on cooldown
   lane-pick clear <lane>            clear cooldown for lane (and its quota group)
   lane-pick scan <vendor> <log>     scan a lane log for rate-limit/quota errors; auto-mark
@@ -172,15 +172,29 @@ def main():
         print(f"unknown class '{cmd}' — known: {', '.join(ladders.get('classes', {}))}",
               file=sys.stderr)
         return 2
+    allowed = None
+    if len(args) == 3 and args[1] == "--allow":
+        requested = args[2].split(",") if args[2] else []
+        if (not requested or any(not lane for lane in requested) or
+                len(set(requested)) != len(requested) or
+                any(lane not in BINARIES or lane not in ladder for lane in requested)):
+            print("--allow requires unique comma-separated lanes from the selected class ladder",
+                  file=sys.stderr)
+            return 2
+        allowed = set(requested)
+    elif len(args) != 1:
+        print(f"usage: lane-pick {cmd} [--allow lane,lane]", file=sys.stderr)
+        return 2
     health = load(HEALTH, {})
-    for lane in ladder:
+    candidates = [lane for lane in ladder if allowed is None or lane in allowed]
+    for lane in candidates:
         if installed(lane) and healthy(lane, health):
-            skipped = ladder[:ladder.index(lane)]
+            skipped = candidates[:candidates.index(lane)]
             if skipped:
                 print(f"(skipped: {', '.join(skipped)} — cooldown/missing)", file=sys.stderr)
             print(lane)
             return 0
-    print(f"no healthy lane for '{cmd}' — ladder: {ladder}. See: lane-pick status",
+    print(f"no healthy lane for '{cmd}' — ladder: {candidates}. See: lane-pick status",
           file=sys.stderr)
     return 3
 

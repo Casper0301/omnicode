@@ -16,7 +16,7 @@ repo → live.
 | Path | What |
 |---|---|
 | `bin/lanes` | tmux lane runner (watchable sessions, logs, completion signal, rate-limit auto-scan on exit) |
-| `bin/lane-pick` | fallback router: task class → strongest healthy lane; cooldowns in `~/.lanes/health.json` |
+| `bin/lane-pick` | fallback router: task class → strongest healthy lane; optional `--allow lane,lane` keeps hardened callers inside their reviewed adapter set; cooldowns in `~/.lanes/health.json` |
 | `bin/uib` + `uib/` | clean-profile Playwright browser daemon+CLI for iterative UI review (open/shot/snapshot @refs/click/fill/eval/console) |
 | `bin/omnicode-doctor` | deep health check — see Monitoring |
 | `config/ladders.json` | per-class fallback ladders + quota groups (codex+dcode share ChatGPT quota) |

@@ -12,7 +12,7 @@ install -m 755 "$REPO/bin/lane-pick"        "$H/.local/bin/lane-pick"
 install -m 755 "$REPO/bin/uib"              "$H/.local/bin/uib"
 install -m 755 "$REPO/bin/omnicode-doctor"  "$H/.local/bin/omnicode-doctor"
 
-mkdir -p "$H/.uib" "$H/.claude/omnicode" "$H/.claude/agents" "$H/.claude/workflows" "$H/.omnicode"
+mkdir -p "$H/.uib" "$H/.claude/omnicode" "$H/.claude/agents" "$H/.claude/workflows" "$H/.claude/skills" "$H/.omnicode"
 cp "$REPO/uib/uib.mjs"      "$H/.uib/uib.mjs"
 cp "$REPO/uib/package.json" "$H/.uib/package.json"
 [ -f "$REPO/uib/README.md" ] && cp "$REPO/uib/README.md" "$H/.uib/README.md"
