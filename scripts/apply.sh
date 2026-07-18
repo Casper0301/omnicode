@@ -4,6 +4,12 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 H="$HOME"
+SKILL_LINK="$H/.claude/skills/omnicode"
+
+if [[ -e "$SKILL_LINK" && ! -L "$SKILL_LINK" ]]; then
+  echo "refusing to replace existing non-symlink skill content: $SKILL_LINK" >&2
+  exit 1
+fi
 
 echo "== apply: $REPO -> live system"
 
@@ -30,7 +36,7 @@ done
 cp "$REPO/workflows/race-and-judge.mjs" "$H/.claude/workflows/race-and-judge.mjs"
 
 # Skill: symlink so the repo stays source of truth (~/.claude/skills is real fs — probed 2026-07-18)
-ln -sfn "$REPO/skill" "$H/.claude/skills/omnicode"
+ln -sfn "$REPO/skill" "$SKILL_LINK"
 
 # Daily doctor (silent monitor): launchd 08:45, records to ~/.omnicode/
 cp "$REPO/launchd/com.casper.omnicode-doctor.plist" "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist"

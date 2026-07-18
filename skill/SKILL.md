@@ -32,6 +32,7 @@ lanes start grok -- grok --prompt-file "$SPEC" -m grok-4.5 --permission-mode acc
 
 ```bash
 lane-pick <class>                 # code|correctness|langchain|longcontext|research|review|ui|architecture → prints lane, exit 3 = none healthy
+lane-pick <class> --allow x,y     # same ladder/cooldowns, restricted to a reviewed ordered set; caller order never overrides ladder order
 lane-pick status                  # cooldown table
 lane-pick mark <lane> [sec] [why] # manual cooldown (default 14400); codex+dcode marked together (shared quota)
 lane-pick clear <lane>            # when a subscription resets early

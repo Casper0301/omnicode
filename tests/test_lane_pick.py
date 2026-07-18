@@ -50,7 +50,7 @@ class LanePickAllowlistTest(unittest.TestCase):
         )
 
     def test_allowlist_keeps_ladder_order(self):
-        result = self.run_pick("code", "--allow", "grok,codex")
+        result = self.run_pick("code", "--allow", "codex,grok")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "grok\n")
 
@@ -82,6 +82,43 @@ class LanePickAllowlistTest(unittest.TestCase):
         result = self.run_pick("code")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "grok\n")
+
+
+class ApplySafetyTest(unittest.TestCase):
+    def test_apply_refuses_to_replace_existing_skill_content(self):
+        for collision in ("file", "directory"):
+            with self.subTest(collision=collision), tempfile.TemporaryDirectory() as temp:
+                home = Path(temp)
+                (home / ".local" / "bin").mkdir(parents=True)
+                (home / ".uib" / "node_modules" / "playwright").mkdir(parents=True)
+                skill_dir = home / ".claude" / "skills"
+                skill_dir.mkdir(parents=True)
+                (home / "Library" / "LaunchAgents").mkdir(parents=True)
+                target = skill_dir / "omnicode"
+                if collision == "file":
+                    target.write_text("keep me\n", encoding="utf-8")
+                else:
+                    target.mkdir()
+                    (target / "keep-me").write_text("keep me\n", encoding="utf-8")
+
+                result = subprocess.run(
+                    [str(ROOT / "scripts" / "apply.sh")],
+                    env={**os.environ, "HOME": str(home)},
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(target.is_symlink())
+                if collision == "file":
+                    self.assertTrue(target.is_file())
+                    self.assertEqual(target.read_text(encoding="utf-8"), "keep me\n")
+                else:
+                    self.assertTrue(target.is_dir())
+                    self.assertEqual((target / "keep-me").read_text(encoding="utf-8"), "keep me\n")
+                self.assertIn("refus", result.stderr.lower())
 
 
 if __name__ == "__main__":
