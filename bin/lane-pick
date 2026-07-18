@@ -27,10 +27,13 @@ DEFAULT_COOLDOWN = {"agy": 86400, "codex": 21600, "dcode": 21600,
                     "grok": 7200, "glm": 1800, "gemini": 21600, "claude": 3600}
 TRANSIENT_COOLDOWN = 900
 
+# NOTE: no "out of credits"/"insufficient credits" here — those phrases describe
+# third-party tools (Firecrawl, OpenRouter) inside lane logs and false-positived
+# 2026-07-18 (grok marked for Firecrawl's exhaustion). Only vendor-CLI-shaped
+# limit messages qualify for auto-marking; credit exhaustion is marked manually.
 HARD_PATTERNS = [r"individual quota reached", r"quota (?:exceeded|reached)",
-                 r"usage (?:limit|cap)", r"hit your usage", r"insufficient credits",
-                 r"out of credits", r"limit reached", r"resource_exhausted",
-                 r"upgrade your subscription"]
+                 r"usage (?:limit|cap)", r"hit your usage",
+                 r"resource_exhausted", r"upgrade your subscription"]
 TRANSIENT_PATTERNS = [r"rate[ -]limit", r"too many requests", r"\b429\b",
                       r"overloaded", r"\b529\b", r"capacity constraints"]
 
