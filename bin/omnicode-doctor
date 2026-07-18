@@ -152,6 +152,9 @@ else pass "codex-implementer stdin bug absent"; fi
 # ---------------------------------------------------------------- skills / MCP / workflows
 sect "skills, MCP, workflows"
 [ -f "$H/.claude/workflows/race-and-judge.mjs" ] && pass "race-and-judge workflow present" || fail "race-and-judge.mjs missing"
+if [ "$(readlink "$H/.claude/skills/omnicode" 2>/dev/null)" = "$H/Projects/omnicode/skill" ] && [ -f "$H/.claude/skills/omnicode/SKILL.md" ]; then
+  pass "omnicode skill symlinked to repo"
+else fail "omnicode skill symlink missing/wrong — run scripts/apply.sh"; fi
 [ -d "$H/.claude/skills/rjv" ] && pass "rjv skill present" || warn "rjv skill dir missing"
 if python3 -c "
 import json;d=json.load(open('$H/.claude.json'))

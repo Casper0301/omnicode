@@ -29,6 +29,9 @@ done
 
 cp "$REPO/workflows/race-and-judge.mjs" "$H/.claude/workflows/race-and-judge.mjs"
 
+# Skill: symlink so the repo stays source of truth (~/.claude/skills is real fs — probed 2026-07-18)
+ln -sfn "$REPO/skill" "$H/.claude/skills/omnicode"
+
 # Daily doctor (silent monitor): launchd 08:45, records to ~/.omnicode/
 cp "$REPO/launchd/com.casper.omnicode-doctor.plist" "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist"
 launchctl unload "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist" 2>/dev/null || true
