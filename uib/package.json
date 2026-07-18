@@ -1,0 +1,7 @@
+{
+  "name": "uib",
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.61.1"
+  }
+}

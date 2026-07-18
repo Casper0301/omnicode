@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+# omnicode-doctor — deep health check for the omnicode multi-model orchestration system.
+#
+#   omnicode-doctor            full token-free check (CLIs, auth, router, lanes, uib,
+#                              brain, agents, skills, MCP, state) with functional probes
+#   omnicode-doctor --fast     skip the slower auth probes and the uib browser probe
+#   omnicode-doctor --live     ALSO run one tiny real prompt through the top healthy
+#                              code lane (burns a little quota — proves end-to-end)
+#   omnicode-doctor --record   write ~/.omnicode/doctor-last.txt + append history line
+#
+# Exit 0 = no FAIL. Exit 1 = at least one FAIL.
+set -uo pipefail
+H="$HOME"
+FAST=0; LIVE=0; RECORD=0
+for a in "$@"; do case "$a" in --fast) FAST=1;; --live) LIVE=1;; --record) RECORD=1;; esac; done
+
+PASS=0; WARN=0; FAIL=0
+OUT=""
+say()  { OUT+="$1"$'\n'; echo "$1"; }
+pass() { PASS=$((PASS+1)); say "[PASS] $*"; }
+warn() { WARN=$((WARN+1)); say "[WARN] $*"; }
+fail() { FAIL=$((FAIL+1)); say "[FAIL] $*"; }
+sect() { say ""; say "== $* =="; }
+to()   { perl -e 'alarm shift; exec @ARGV' "$@" 2>&1; }   # to <sec> <cmd...>
+
+say "omnicode-doctor — $(date '+%Y-%m-%d %H:%M') — host $(hostname -s)"
+
+# ---------------------------------------------------------------- core binaries
+sect "core binaries"
+for b in tmux node python3 npx uvx gh git claude; do
+  if command -v "$b" >/dev/null 2>&1; then pass "$b on PATH"; else fail "$b missing from PATH"; fi
+done
+
+# ---------------------------------------------------------------- lane CLIs + auth
+sect "lane CLIs + subscription auth (token-free probes)"
+if command -v codex >/dev/null 2>&1; then
+  if [ "$FAST" = 1 ]; then pass "codex installed (auth probe skipped --fast)"
+  elif to 15 env -u OPENAI_API_KEY codex login status >/dev/null; then pass "codex installed + ChatGPT auth OK"
+  else fail "codex auth probe failed — run: codex login"; fi
+else fail "codex CLI missing"; fi
+
+if command -v grok >/dev/null 2>&1; then
+  if [ "$FAST" = 1 ]; then pass "grok installed (auth probe skipped --fast)"
+  elif to 15 grok models >/dev/null; then pass "grok installed + xAI auth OK"
+  else fail "grok auth probe failed — run: grok login"; fi
+else fail "grok CLI missing"; fi
+
+if command -v agy >/dev/null 2>&1; then
+  pass "agy installed ($(to 10 agy --version | head -1)) — quota state only visible on use"
+else fail "agy CLI missing"; fi
+
+if [ -x "$H/.local/bin/glm" ] && [ -r "$H/.config/zai/token" ]; then pass "glm launcher + z.ai token present"
+else fail "glm launcher or ~/.config/zai/token missing"; fi
+
+if command -v dcode >/dev/null 2>&1; then
+  if [ "$FAST" = 1 ]; then pass "dcode installed (auth probe skipped --fast)"
+  elif to 25 env LANGGRAPH_ALLOW_BLOCKING=true dcode auth list | grep -qE "openai_codex\s+stored"; then
+    pass "dcode installed + openai_codex auth stored"
+  else fail "dcode openai_codex auth not stored — run: dcode auth set openai_codex"; fi
+else fail "dcode CLI missing"; fi
+
+# ---------------------------------------------------------------- fallback router
+sect "fallback router (lane-pick + ladders)"
+if [ -x "$H/.local/bin/lane-pick" ]; then pass "lane-pick executable"; else fail "lane-pick missing"; fi
+if python3 -c "import json;json.load(open('$H/.claude/omnicode/ladders.json'))" 2>/dev/null; then
+  pass "ladders.json valid JSON"
+else fail "ladders.json missing or invalid JSON"; fi
+if python3 -c "
+import json;d=json.load(open('$H/.claude/omnicode/ladders.json'))
+g=d.get('quota_groups',{}).get('openai',[])
+assert 'codex' in g and 'dcode' in g" 2>/dev/null; then
+  pass "quota group openai contains codex+dcode"
+else fail "quota_groups.openai must contain codex and dcode"; fi
+for c in code correctness langchain longcontext research review ui architecture; do
+  r=$(lane-pick "$c" 2>/dev/null); rc=$?
+  if [ $rc -eq 0 ]; then pass "class $c -> $r"
+  elif [ $rc -eq 3 ]; then warn "class $c: NO healthy lane right now (ladder exhausted)"
+  else fail "class $c: lane-pick error rc=$rc"; fi
+done
+
+# ---------------------------------------------------------------- lanes runner
+sect "lanes runner (tmux + auto-scan integration)"
+if [ -x "$H/.local/bin/lanes" ]; then pass "lanes executable"; else fail "lanes missing"; fi
+if grep -qE 'scan.*lane-pick|lane-pick.*scan' "$H/.local/bin/lanes" 2>/dev/null; then
+  pass "lanes carries the rate-limit auto-scan hook"
+else fail "lanes is missing the lane-pick scan hook (fallback auto-detection dead)"; fi
+if [ -w "$H/.lanes" ] || mkdir -p "$H/.lanes" 2>/dev/null; then pass "~/.lanes writable"; else fail "~/.lanes not writable"; fi
+MARK="omnicode-selftest-$$"
+S=$(lanes start doctor-selftest -- echo "$MARK" 2>/dev/null | awk -F= '/^SESSION=/{print $2}')
+if [ -n "$S" ] && lanes wait "$S" 30 >/dev/null 2>&1 && grep -q "$MARK" "$H/.lanes/$S.log" 2>/dev/null; then
+  pass "lanes round-trip (start->wait->log) works"
+else fail "lanes round-trip failed (session=$S)"; fi
+
+# ---------------------------------------------------------------- uib browser
+sect "uib browser (UI verification loop)"
+if [ -x "$H/.local/bin/uib" ] && [ -f "$H/.uib/uib.mjs" ]; then pass "uib shim + implementation present"; else fail "uib missing"; fi
+if [ -d "$H/.uib/node_modules/playwright" ]; then pass "playwright installed in ~/.uib"; else fail "playwright missing — cd ~/.uib && npm i"; fi
+if [ "$FAST" = 1 ]; then
+  warn "uib browser probe skipped (--fast)"
+else
+  if uib status >/dev/null 2>&1; then
+    PNG=$(mktemp -t uib-doctor).png
+    if uib shot "$PNG" >/dev/null 2>&1 && [ "$(stat -f%z "$PNG" 2>/dev/null || echo 0)" -gt 1000 ]; then
+      pass "uib daemon already live — non-destructive screenshot OK (left running)"
+    else warn "uib daemon live but screenshot failed"; fi
+  else
+    PNG=$(mktemp -t uib-doctor).png
+    if uib open 'data:text/html,<title>doctor</title><h1>omnicode doctor</h1>' >/dev/null 2>&1 \
+       && uib shot "$PNG" >/dev/null 2>&1 \
+       && [ "$(stat -f%z "$PNG" 2>/dev/null || echo 0)" -gt 1000 ]; then
+      uib stop >/dev/null 2>&1
+      pass "uib full round-trip (open->shot->stop) works, offline-safe data: URL"
+    else
+      uib stop >/dev/null 2>&1
+      fail "uib round-trip failed"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------- shared brain + memory
+sect "shared brain + doctrine coherence"
+CANON=$(python3 -c "import os;print(os.path.realpath(os.path.expanduser('~/.ai-memory/MEMORY.md')))" 2>/dev/null)
+if [ -n "$CANON" ] && [ -f "$CANON" ]; then pass "brain file exists ($CANON)"; else fail "~/.ai-memory/MEMORY.md unresolvable"; fi
+DRIFT=0
+for f in "$H/.codex/AGENTS.md" "$H/.gemini/GEMINI.md" "$H/.grok/AGENTS.md"; do
+  R=$(python3 -c "import os;print(os.path.realpath('$f'))" 2>/dev/null)
+  if [ "$R" = "$CANON" ]; then pass "brain link OK: $f"
+  else DRIFT=1; fail "brain link DRIFT: $f -> $R (expected $CANON)"; fi
+done
+[ $DRIFT -eq 0 ] && pass "all vendor CLIs read the SAME brain"
+DOC="$H/.ai-memory/multi-model-orchestration.md"
+if grep -q "Automatic fallback ladders" "$DOC" 2>/dev/null && grep -q "uib" "$DOC" 2>/dev/null; then
+  pass "doctrine carries fallback + uib sections"
+else fail "doctrine missing fallback/uib sections ($DOC)"; fi
+if grep -q "lane-pick" "$CANON" 2>/dev/null; then pass "shared brain mentions lane-pick (lanes will discover the router)"
+else fail "shared brain does not mention lane-pick"; fi
+
+# ---------------------------------------------------------------- wrapper agents
+sect "lane wrapper agents"
+for a in fable-advisor codex-implementer grok-implementer antigravity-implementer gemini-reviewer glm-longcontext dcode-implementer; do
+  [ -f "$H/.claude/agents/$a.md" ] && pass "agent $a present" || fail "agent $a.md missing"
+done
+for a in codex-implementer grok-implementer antigravity-implementer glm-longcontext dcode-implementer; do
+  grep -q "Rate-limit fallback" "$H/.claude/agents/$a.md" 2>/dev/null \
+    && pass "$a carries fallback protocol" || fail "$a missing fallback protocol"
+done
+# Match only a BARE invocation line (the bug); prose warnings quoting the pattern are fine.
+if grep -qE -- '^[[:space:]]*- < "\$SPEC"[[:space:]]*\\?$' "$H/.claude/agents/codex-implementer.md" 2>/dev/null; then
+  fail "codex-implementer still documents the stdin-redirect invocation (hangs under lanes)"
+else pass "codex-implementer stdin bug absent"; fi
+
+# ---------------------------------------------------------------- skills / MCP / workflows
+sect "skills, MCP, workflows"
+[ -f "$H/.claude/workflows/race-and-judge.mjs" ] && pass "race-and-judge workflow present" || fail "race-and-judge.mjs missing"
+[ -d "$H/.claude/skills/rjv" ] && pass "rjv skill present" || warn "rjv skill dir missing"
+if python3 -c "
+import json;d=json.load(open('$H/.claude.json'))
+assert 'agent-harnesses' in d.get('mcpServers',{})" 2>/dev/null; then
+  pass "agent-harnesses MCP configured"
+else warn "agent-harnesses MCP not in ~/.claude.json"; fi
+
+# ---------------------------------------------------------------- state hygiene
+sect "state hygiene"
+if python3 -c "import json;json.load(open('$H/.lanes/health.json'))" 2>/dev/null; then
+  pass "health.json valid"; COOL=$(lane-pick status 2>/dev/null | grep COOLDOWN || true)
+  [ -n "$COOL" ] && say "$COOL"
+else warn "health.json missing/invalid (fresh state is fine)"; fi
+if [ -f "$H/.uib/daemon.json" ]; then
+  DPID=$(python3 -c "import json;print(json.load(open('$H/.uib/daemon.json')).get('pid',0))" 2>/dev/null || echo 0)
+  if [ "$DPID" -gt 0 ] && kill -0 "$DPID" 2>/dev/null; then say "       uib daemon live (pid $DPID) — fine"
+  else warn "stale ~/.uib/daemon.json (daemon dead) — uib will clean it on next start"; fi
+fi
+SZ=$(du -sm "$H/.lanes" 2>/dev/null | cut -f1 || echo 0)
+if [ "${SZ:-0}" -gt 200 ]; then warn "~/.lanes is ${SZ}MB — prune old logs"; else pass "~/.lanes size OK (${SZ}MB)"; fi
+OLD=$(tmux ls 2>/dev/null | grep '^lane-' | grep -cv "$(date +%m%d)" || true)
+[ "${OLD:-0}" -gt 0 ] && warn "$OLD lane tmux session(s) from a previous day still running — check: tmux ls" || pass "no stale lane sessions"
+
+# ---------------------------------------------------------------- optional live probe
+if [ "$LIVE" = 1 ]; then
+  sect "LIVE end-to-end probe (burns a little quota)"
+  L=$(lane-pick code 2>/dev/null || true)
+  case "$L" in
+    grok)  CMD=(grok -p "Reply with exactly: OMNICODE-LIVE-OK" -m grok-4.5 --output-format plain);;
+    glm)   CMD=(glm --model sonnet -p "Reply with exactly: OMNICODE-LIVE-OK");;
+    codex) CMD=(codex exec --ignore-user-config -m gpt-5.6-sol -c model_reasoning_effort=low -s read-only --skip-git-repo-check "Reply with exactly: OMNICODE-LIVE-OK");;
+    *)     CMD=();;
+  esac
+  if [ ${#CMD[@]} -gt 0 ]; then
+    S=$(lanes start doctor-live -- "${CMD[@]}" | awk -F= '/^SESSION=/{print $2}')
+    lanes wait "$S" 120 >/dev/null 2>&1 || true
+    if grep -q "OMNICODE-LIVE-OK" "$H/.lanes/$S.log" 2>/dev/null; then
+      pass "live prompt through $L lane returned correctly"
+    else fail "live probe through $L did not return the marker (see ~/.lanes/$S.log)"; fi
+  else warn "no healthy code lane for live probe"; fi
+fi
+
+# ---------------------------------------------------------------- summary
+sect "summary"
+say "PASS=$PASS WARN=$WARN FAIL=$FAIL"
+if [ "$RECORD" = 1 ]; then
+  mkdir -p "$H/.omnicode"
+  printf '%s' "$OUT" > "$H/.omnicode/doctor-last.txt"
+  echo "$(date '+%Y-%m-%d %H:%M') PASS=$PASS WARN=$WARN FAIL=$FAIL" >> "$H/.omnicode/doctor-history.log"
+fi
+[ "$FAIL" -eq 0 ]

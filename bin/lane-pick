@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""lane-pick — omnicode fallback router (2026-07-17).
+
+Resolves a task class to the strongest currently-healthy lane, tracks
+rate-limit cooldowns, and parses vendor CLI logs for quota exhaustion.
+
+  lane-pick <class>                 print first healthy lane for the class (exit 3 if none)
+  lane-pick mark <lane> [sec] [why] put lane (and its quota group) on cooldown
+  lane-pick clear <lane>            clear cooldown for lane (and its quota group)
+  lane-pick scan <vendor> <log>     scan a lane log for rate-limit/quota errors; auto-mark
+  lane-pick status                  cooldown table
+  lane-pick classes                 show ladders
+
+Fallback is automatic but never silent: callers must report "LANE: x->y (reason)".
+"""
+import json, os, re, shutil, sys, time
+
+LADDERS = os.path.expanduser("~/.claude/omnicode/ladders.json")
+HEALTH = os.path.expanduser("~/.lanes/health.json")
+
+# claude = the session/Agent-tool lane; always considered installed.
+BINARIES = {"codex": "codex", "grok": "grok", "agy": "agy", "glm": "glm",
+            "dcode": "dcode", "gemini": "gemini", "claude": None}
+
+# No-parse default cooldowns (seconds) per vendor.
+DEFAULT_COOLDOWN = {"agy": 86400, "codex": 21600, "dcode": 21600,
+                    "grok": 7200, "glm": 1800, "gemini": 21600, "claude": 3600}
+TRANSIENT_COOLDOWN = 900
+
+HARD_PATTERNS = [r"individual quota reached", r"quota (?:exceeded|reached)",
+                 r"usage (?:limit|cap)", r"hit your usage", r"insufficient credits",
+                 r"out of credits", r"limit reached", r"resource_exhausted",
+                 r"upgrade your subscription"]
+TRANSIENT_PATTERNS = [r"rate[ -]limit", r"too many requests", r"\b429\b",
+                      r"overloaded", r"\b529\b", r"capacity constraints"]
+
+
+def load(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def save_health(h):
+    os.makedirs(os.path.dirname(HEALTH), exist_ok=True)
+    tmp = HEALTH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(h, f, indent=1)
+    os.replace(tmp, HEALTH)
+
+
+def group_of(lane, ladders):
+    for members in ladders.get("quota_groups", {}).values():
+        if lane in members:
+            return members
+    return [lane]
+
+
+def installed(lane):
+    binary = BINARIES.get(lane, lane)
+    return binary is None or shutil.which(binary) is not None
+
+
+def healthy(lane, health):
+    entry = health.get(lane)
+    return not entry or entry.get("until", 0) <= time.time()
+
+
+def fmt_until(ts):
+    return time.strftime("%a %H:%M", time.localtime(ts))
+
+
+def mark(lane, seconds, reason, ladders):
+    health = load(HEALTH, {})
+    until = time.time() + seconds
+    for member in group_of(lane, ladders):
+        prev = health.get(member, {}).get("until", 0)
+        health[member] = {"until": max(prev, until), "reason": reason,
+                          "marked_at": int(time.time())}
+        print(f"marked {member} until {fmt_until(health[member]['until'])} ({reason})")
+    save_health(health)
+
+
+def parse_reset(text):
+    """Return seconds until reset if the log states it, else None."""
+    m = re.search(r"[Rr]esets? in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", text)
+    if m and any(m.groups()):
+        h, mi, s = (int(g) if g else 0 for g in m.groups())
+        total = h * 3600 + mi * 60 + s
+        if total:
+            return total
+    m = re.search(r"try again in (\d+(?:\.\d+)?)\s*(second|minute|hour|day)s?", text, re.I)
+    if m:
+        mult = {"second": 1, "minute": 60, "hour": 3600, "day": 86400}[m.group(2).lower()]
+        return int(float(m.group(1)) * mult)
+    return None
+
+
+def scan(vendor, logfile, ladders):
+    try:
+        with open(logfile, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 8192))
+            text = f.read().decode("utf-8", "replace")
+    except OSError as e:
+        print(f"scan: cannot read {logfile}: {e}", file=sys.stderr)
+        return
+    hard = next((p for p in HARD_PATTERNS if re.search(p, text, re.I)), None)
+    transient = next((p for p in TRANSIENT_PATTERNS if re.search(p, text, re.I)), None)
+    if not hard and not transient:
+        print(f"scan: {vendor} clean")
+        return
+    reset = parse_reset(text)
+    if hard:
+        seconds = reset or DEFAULT_COOLDOWN.get(vendor, 7200)
+        reason = f"quota ({hard})"
+    else:
+        seconds = reset or TRANSIENT_COOLDOWN
+        reason = f"transient ({transient})"
+    mark(vendor, seconds, reason, ladders)
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__)
+        return 2
+    ladders = load(LADDERS, {"classes": {}, "quota_groups": {}})
+    cmd = args[0]
+
+    if cmd == "mark" and len(args) >= 2:
+        seconds = int(args[2]) if len(args) >= 3 and args[2].isdigit() else 14400
+        reason = " ".join(args[3:]) if len(args) > 3 else "manual"
+        mark(args[1], seconds, reason, ladders)
+        return 0
+
+    if cmd == "clear" and len(args) >= 2:
+        health = load(HEALTH, {})
+        for member in group_of(args[1], ladders):
+            if health.pop(member, None) is not None:
+                print(f"cleared {member}")
+        save_health(health)
+        return 0
+
+    if cmd == "scan" and len(args) >= 3:
+        scan(args[1], args[2], ladders)
+        return 0
+
+    if cmd == "status":
+        health = load(HEALTH, {})
+        lanes = sorted(set(list(BINARIES) + list(health)))
+        for lane in lanes:
+            entry = health.get(lane)
+            if entry and entry.get("until", 0) > time.time():
+                print(f"{lane:8} COOLDOWN until {fmt_until(entry['until'])} — {entry.get('reason', '?')}")
+            else:
+                state = "OK" if installed(lane) else "NOT INSTALLED"
+                print(f"{lane:8} {state}")
+        return 0
+
+    if cmd == "classes":
+        print(json.dumps(ladders.get("classes", {}), indent=1))
+        return 0
+
+    ladder = ladders.get("classes", {}).get(cmd)
+    if ladder is None:
+        print(f"unknown class '{cmd}' — known: {', '.join(ladders.get('classes', {}))}",
+              file=sys.stderr)
+        return 2
+    health = load(HEALTH, {})
+    for lane in ladder:
+        if installed(lane) and healthy(lane, health):
+            skipped = ladder[:ladder.index(lane)]
+            if skipped:
+                print(f"(skipped: {', '.join(skipped)} — cooldown/missing)", file=sys.stderr)
+            print(lane)
+            return 0
+    print(f"no healthy lane for '{cmd}' — ladder: {ladder}. See: lane-pick status",
+          file=sys.stderr)
+    return 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# lanes — run omnicode CLI lanes (codex/grok/agy/glm/dcode) in named tmux sessions:
+# watchable live (tmux attach), log-backed (~/.lanes/), completion-signaled (tmux wait-for).
+#
+#   lanes start <name> -- <command...>   launch detached; prints SESSION= and LOG=; returns immediately
+#   lanes wait <session> [max-sec=540]   bounded block: exit 0 = lane done, 142 = still running (call again)
+#   lanes ls                             list running lane sessions + recent logs
+#   lanes peek <session> [n=25]          last n lines of the live pane (falls back to the log)
+#   lanes log <session> [n=40]           tail the lane's log file
+#   lanes attach <session>               attach a real terminal to the lane (detach: Ctrl-b d)
+#   lanes kill <session>                 kill a lane session
+set -uo pipefail
+DIR="$HOME/.lanes"; mkdir -p "$DIR"
+GUARD_DIR="$DIR/guard"
+mkdir -p "$GUARD_DIR/gh-config-empty"
+touch "$GUARD_DIR/gitconfig"
+chmod 600 "$GUARD_DIR/gitconfig"
+sub="${1:-ls}"; shift || true
+
+case "$sub" in
+  start)
+    name="$1"; shift
+    [ "${1:-}" = "--" ] && shift
+    sess="lane-${name}-$(date +%m%d-%H%M%S)-$$-${RANDOM}"
+    log="$DIR/$sess.log"
+    runner="$DIR/$sess.cmd"
+    # Fallback router integration: detect which vendor CLI this lane runs so the
+    # runner can scan its log for quota/rate-limit errors on exit (lane-pick).
+    vend=$(printf '%s ' "$@" | grep -oE '\b(codex|grok|agy|glm|dcode|gemini|claude)\b' | head -1 || true)
+    {
+      printf '#!/usr/bin/env bash\n'
+      # No set -e here: the wait-for signal must fire even when the lane fails.
+      if [ "${OMNICODE_NO_GITHUB:-0}" = "1" ]; then
+        guard_home="${AUTORADAR_AGENT_HOME:?AUTORADAR_AGENT_HOME is required in guarded mode}"
+        printf 'env -i'
+        for key in HOME LANG LC_ALL LC_CTYPE LOGNAME PATH SHELL TERM TMPDIR USER; do
+          value="${!key:-}"
+          [ -n "$value" ] && printf ' %q' "$key=$value"
+        done
+        printf ' %q' \
+          "GH_CONFIG_DIR=$guard_home/gh-config-empty" \
+          "XDG_CONFIG_HOME=$guard_home/xdg-config" \
+          "GIT_CONFIG_GLOBAL=$guard_home/gitconfig" \
+          "GIT_CONFIG_SYSTEM=/dev/null" \
+          "GIT_ASKPASS=/usr/bin/false" \
+          "GIT_SSH_COMMAND=/usr/bin/false" \
+          "GIT_TERMINAL_PROMPT=0" \
+          "GH_PAGER=cat" \
+          "GIT_PAGER=cat" \
+          "PAGER=cat" \
+          "OMNICODE_NO_GITHUB=1" \
+          "AUTORADAR_AGENT_HOME=$guard_home"
+        printf ' '
+      else
+        # Subscription lanes must never inherit pay-per-token API keys. GitHub
+        # tokens are also removed; the trusted orchestrator owns push/PR actions.
+        printf '%s' 'env -u OPENAI_API_KEY -u OPENAI_BASE_URL -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u OPENROUTER_API_KEY -u GEMINI_API_KEY -u GOOGLE_API_KEY -u XAI_API_KEY -u XAI_BASE_URL -u ZAI_API_KEY -u DEEPSEEK_API_KEY -u MISTRAL_API_KEY -u GROQ_API_KEY -u COHERE_API_KEY -u TOGETHER_API_KEY -u FIREWORKS_API_KEY -u LANGSMITH_API_KEY -u LANGCHAIN_API_KEY -u LANGCHAIN_TRACING_V2 -u TAVILY_API_KEY -u GH_TOKEN -u GITHUB_TOKEN -u GITHUB_PERSONAL_ACCESS_TOKEN -u GITLAB_TOKEN'
+        if [ "${OMNICODE_ALLOW_GITHUB:-0}" != "1" ]; then
+          printf ' %q' \
+            "GH_CONFIG_DIR=$GUARD_DIR/gh-config-empty" \
+            "GIT_CONFIG_GLOBAL=$GUARD_DIR/gitconfig" \
+            "GIT_CONFIG_SYSTEM=/dev/null" \
+            "GIT_ASKPASS=/usr/bin/false" \
+            "GIT_SSH_COMMAND=/usr/bin/false" \
+            "GIT_TERMINAL_PROMPT=0" \
+            "GCM_INTERACTIVE=Never" \
+            "GH_PAGER=cat" \
+            "GIT_PAGER=cat" \
+            "PAGER=cat"
+        fi
+        printf ' '
+      fi
+      printf '%q ' "$@"; printf ' 2>&1 | tee %q\n' "$log"
+      printf 'echo "[lanes] exit=${PIPESTATUS[0]}" | tee -a %q\n' "$log"
+      # Auto-mark rate-limited lanes before signalling waiters, so the caller's
+      # next lane-pick already routes around the outage.
+      [ -n "$vend" ] && printf '%q scan %q %q 2>&1 | tee -a %q\n' "$HOME/.local/bin/lane-pick" "$vend" "$log" "$log"
+      printf 'tmux wait-for -S %q\n' "done-$sess"
+    } > "$runner"
+    chmod +x "$runner"
+    tmux new-session -d -s "$sess" -c "$PWD" "$runner"
+    echo "SESSION=$sess"
+    echo "LOG=$log"
+    echo "watch live: tmux attach -t $sess   (detach: Ctrl-b d)"
+    ;;
+  wait)
+    sess="$1"; max="${2:-540}"
+    tmux has-session -t "$sess" 2>/dev/null || exit 0
+    if perl -e 'alarm shift; exec @ARGV' "$max" tmux wait-for "done-$sess" 2>/dev/null; then
+      exit 0
+    else
+      rc=$?
+      [ "$rc" -eq 142 ] && exit 142   # alarm fired: still running — caller loops
+      exit 0                          # tmux/server gone etc. = session over
+    fi
+    ;;
+  ls)
+    tmux ls 2>/dev/null | grep '^lane-' || echo "no lanes running"
+    echo "--- recent logs ---"
+    ls -t "$DIR"/*.log 2>/dev/null | head -5 || true
+    ;;
+  peek)
+    tmux capture-pane -pt "$1" 2>/dev/null | tail -n "${2:-25}" || tail -n "${2:-25}" "$DIR/$1.log"
+    ;;
+  log)
+    tail -n "${2:-40}" "$DIR/$1.log"
+    ;;
+  attach)
+    exec tmux attach -t "$1"
+    ;;
+  kill)
+    tmux kill-session -t "$1"
+    ;;
+  *)
+    echo "usage: lanes start <name> -- <cmd...> | wait <sess> [max] | ls | peek <sess> [n] | log <sess> [n] | attach <sess> | kill <sess>"
+    exit 2
+    ;;
+esac
