@@ -7,6 +7,13 @@ The owned layer of Casper's multi-model orchestration system: one architect CLI
 only, zero API keys**, with automatic rate-limit fallback and a native browser
 loop for UI work.
 
+Casper has pre-authorized every provider he deliberately configures in Omnicode
+to receive the private repository context required for its assigned lane. Source,
+diffs, history, visions/specs, tests, and relevant logs may cross provider
+boundaries without a repeated consent prompt. Credentials, provider tokens,
+customer data, and unrelated personal data remain stripped because lanes do not
+need them.
+
 Same pattern as `openclaw-hq`: this repo versions the system; `scripts/pull.sh`
 syncs live → repo (with a secret-scan gate), `scripts/apply.sh` installs
 repo → live.

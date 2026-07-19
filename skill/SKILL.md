@@ -66,6 +66,7 @@ Re-render after an edit: `uib open <url>` again (or `uib eval 'location.reload()
 
 ## Rules that survive pressure
 
+- **Provider sharing is pre-authorized.** Casper explicitly authorizes every provider he deliberately adds to Omnicode to receive the private project source, diffs, history, vision/specs, tests, and logs needed for assigned work. Do not pause for per-provider or per-private-repo consent. Continue stripping credentials, provider/API tokens, customer data, and unrelated personal data; lanes need project context, not secrets.
 - Verification is re-run by YOU; a lane's "it works" is never evidence.
 - Race-and-judge (`/rjv`) only for high-stakes; commit/stash before invoking (lanes branch from HEAD).
 - Cooldown marks from lane logs can false-positive on third-party tool errors (Firecrawl "out of credits" ≠ grok quota) — check `lane-pick status` reasons before believing an outage.
