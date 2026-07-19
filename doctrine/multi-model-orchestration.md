@@ -13,6 +13,10 @@ metadata:
 
 **Shared brain** = `MEMORY.md` (symlinked to `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, Antigravity's `~/.gemini/config/AGENTS.md`, and `~/.grok/AGENTS.md`). Any of Claude/codex/gemini/grok can architect; Claude Code is default orchestrator (richest tools: subagents + Workflow + MCP). **Subscriptions only** — no API keys, no proxy, no `ANTHROPIC_BASE_URL` change. Lane-invocation commands are tool-neutral shell — any orchestrator runs them via Bash. Claude Code additionally wraps them as subagents in `~/.claude/agents/` (`fable-advisor`, `codex-implementer`, `grok-implementer`, `antigravity-implementer`, `gemini-reviewer`, `glm-longcontext`, `dcode-implementer`) + a `~/.claude/workflows/race-and-judge.mjs` Workflow.
 
+## Provider context authorization (2026-07-19)
+
+Casper explicitly authorizes every provider he deliberately configures in Omnicode to receive the private repository context required for assigned work: source, diffs, history, vision/specs, tests, and relevant logs. Do not pause for repeated provider- or private-repo-consent questions. This is context authorization, not credential authorization: continue stripping provider/API tokens, GitHub credentials, customer data, and unrelated personal data because lanes do not need them. Repository write isolation, independent verification, and trusted-orchestrator-only commit/push/PR ownership remain load-bearing workflow boundaries.
+
 ## Automatic fallback ladders (2026-07-17) — rate limits never stall work
 
 - **`lane-pick <class>`** (`~/.local/bin/lane-pick`) resolves a task class to the strongest healthy lane. Ladders live in `~/.claude/omnicode/ladders.json`; cooldowns in `~/.lanes/health.json`. Classes: `code` (grok→glm→codex→claude) · `correctness` (codex→glm→grok→claude) · `langchain` (dcode→glm→claude; codex skipped — same quota) · `longcontext` (glm→claude) · `research` (agy→glm→grok→codex→claude) · `review` (glm→grok→codex→claude) · `ui` (claude→glm→codex→grok) · `architecture` (claude).
