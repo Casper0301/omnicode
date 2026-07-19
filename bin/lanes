@@ -31,7 +31,10 @@ case "$sub" in
       printf '#!/usr/bin/env bash\n'
       # No set -e here: the wait-for signal must fire even when the lane fails.
       if [ "${OMNICODE_NO_GITHUB:-0}" = "1" ]; then
-        guard_home="${AUTORADAR_AGENT_HOME:?AUTORADAR_AGENT_HOME is required in guarded mode}"
+        # Generic name first; AUTORADAR_AGENT_HOME stays as a compatibility
+        # alias until every caller migrates (lanes is project-agnostic).
+        guard_home="${OMNICODE_AGENT_HOME:-${AUTORADAR_AGENT_HOME:-}}"
+        [ -n "$guard_home" ] || { printf 'OMNICODE_AGENT_HOME is required in guarded mode\n' >&2; exit 64; }
         printf 'env -i'
         for key in HOME LANG LC_ALL LC_CTYPE LOGNAME PATH SHELL TERM TMPDIR USER; do
           value="${!key:-}"
@@ -49,6 +52,7 @@ case "$sub" in
           "GIT_PAGER=cat" \
           "PAGER=cat" \
           "OMNICODE_NO_GITHUB=1" \
+          "OMNICODE_AGENT_HOME=$guard_home" \
           "AUTORADAR_AGENT_HOME=$guard_home"
         printf ' '
       else

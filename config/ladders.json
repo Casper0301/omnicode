@@ -11,6 +11,6 @@
     "research":     ["agy", "glm", "grok", "codex", "claude"],
     "review":       ["glm", "grok", "codex", "claude"],
     "ui":           ["claude", "glm", "codex", "grok"],
-    "architecture": ["claude"]
+    "architecture": ["claude", "codex"]
   }
 }
