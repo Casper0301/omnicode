@@ -42,12 +42,12 @@ queue hq-generic-supervisor \
 
 queue hq-agent-model-fallbacks \
   --class code --cwd "$HQ" \
-  --objective "Give every OpenClaw agent a non-empty model fallbacks list in the live gateway config (autoradar agents currently have \"fallbacks\": [] — a pulled model kills them, as the Fable-5 removal proved), then scripts/pull.sh so the sanitized mirror reflects it." \
+  --objective "PRECONDITION: the auth-persistence session (gateway restart, 2026-07-19) must have finished and pushed its own pull.sh sync first — never snapshot the live config mid-flight. THEN: give every OpenClaw agent a non-empty model fallbacks list in the live gateway config (autoradar agents currently have \"fallbacks\": [] — a pulled model kills them, as the Fable-5 removal proved), then scripts/pull.sh so the sanitized mirror reflects it." \
   --acceptance "! grep -q '\"fallbacks\": \\[\\]' $HQ/config/openclaw.sanitized.json5"
 
 queue hq-cron-snapshot \
   --class code --cwd "$HQ" \
-  --objective "cron/jobs.sanitized.json is an empty {} while three live cron jobs exist — fix scripts/pull.sh sanitization so the mirror captures them." \
+  --objective "PRECONDITION: same as hq-agent-model-fallbacks — wait for the auth-persistence session's sync to land before running pull.sh. THEN: cron/jobs.sanitized.json is an empty {} while three live cron jobs exist — fix scripts/pull.sh sanitization so the mirror captures them." \
   --acceptance "python3 -c 'import json;d=json.load(open(\"$HQ/cron/jobs.sanitized.json\"));assert d, \"cron snapshot is empty\"'"
 
 queue monitor-hardening \
