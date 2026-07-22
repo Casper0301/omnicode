@@ -13,18 +13,18 @@ rate-limit cooldowns, and parses vendor CLI logs for quota exhaustion.
 
 Fallback is automatic but never silent: callers must report "LANE: x->y (reason)".
 """
-import json, os, re, shutil, sys, time
+import datetime, json, os, re, shutil, sys, time
 
 LADDERS = os.path.expanduser("~/.claude/omnicode/ladders.json")
 HEALTH = os.path.expanduser("~/.lanes/health.json")
 
 # claude = the session/Agent-tool lane; always considered installed.
-BINARIES = {"codex": "codex", "grok": "grok", "agy": "agy", "glm": "glm",
-            "dcode": "dcode", "gemini": "gemini", "claude": None}
+BINARIES = {"codex": "codex", "grok": "grok", "glm": "glm",
+            "dcode": "dcode", "claude": None}
 
 # No-parse default cooldowns (seconds) per vendor.
-DEFAULT_COOLDOWN = {"agy": 86400, "codex": 21600, "dcode": 21600,
-                    "grok": 7200, "glm": 1800, "gemini": 21600, "claude": 3600}
+DEFAULT_COOLDOWN = {"codex": 21600, "dcode": 21600,
+                    "grok": 7200, "glm": 1800, "claude": 3600}
 TRANSIENT_COOLDOWN = 900
 
 # NOTE: no "out of credits"/"insufficient credits" here — those phrases describe
@@ -69,6 +69,54 @@ def installed(lane):
 def healthy(lane, health):
     entry = health.get(lane)
     return not entry or entry.get("until", 0) <= time.time()
+
+
+# Credential state, checked locally with no network call.
+#
+# Installed + not-cooled-down was never health: on 2026-07-22 this reported grok
+# OK while it was signed out and glm OK while its token 401'd, so the factory
+# kept routing work to dead lanes and burning whole episodes on them. An expiry
+# that has already passed is knowable from disk, so check it before routing.
+CREDENTIALS = {
+    # lane: (path, kind)  — "oidc" files carry an expires_at we can read.
+    "grok": (os.path.expanduser("~/.grok/auth.json"), "oidc"),
+    "glm": (os.path.expanduser("~/.config/zai/token"), "opaque"),
+}
+
+
+def credential_state(lane):
+    """ok | expired | missing | unknown — never raises, never touches the network."""
+    entry = CREDENTIALS.get(lane)
+    if not entry:
+        return "unknown"
+    path, kind = entry
+    if not os.path.exists(path):
+        return "missing"
+    if kind != "oidc":
+        # An opaque token's validity cannot be judged from disk; only a live
+        # probe or an observed 401 can, so do not claim more than we know.
+        return "unknown"
+    try:
+        with open(path) as fh:
+            store = json.load(fh)
+        identity = next(iter(store.values()), {})
+        expires = identity.get("expires_at")
+        if not expires:
+            return "unknown"
+        # x.ai stamps nanosecond precision (9 fractional digits) and
+        # fromisoformat only accepts 3 or 6. Truncating first matters: without
+        # it this raised, fell through to "unknown", and reported a dead lane as
+        # OK — silently reintroducing the exact blindness being fixed here.
+        text = expires.strip().replace("Z", "+00:00")
+        text = re.sub(r"\.(\d{6})\d+", r".\1", text)
+        ts = datetime.datetime.fromisoformat(text)
+        return "ok" if ts.timestamp() > time.time() else "expired"
+    except Exception:
+        return "unknown"
+
+
+def credential_usable(lane):
+    return credential_state(lane) not in ("expired", "missing")
 
 
 def fmt_until(ts):
@@ -159,7 +207,15 @@ def main():
             if entry and entry.get("until", 0) > time.time():
                 print(f"{lane:8} COOLDOWN until {fmt_until(entry['until'])} — {entry.get('reason', '?')}")
             else:
-                state = "OK" if installed(lane) else "NOT INSTALLED"
+                cred = credential_state(lane)
+                if not installed(lane):
+                    state = "NOT INSTALLED"
+                elif cred == "expired":
+                    state = "CREDENTIAL EXPIRED - needs interactive re-auth"
+                elif cred == "missing":
+                    state = "CREDENTIAL MISSING"
+                else:
+                    state = "OK"
                 print(f"{lane:8} {state}")
         return 0
 
@@ -188,7 +244,7 @@ def main():
     health = load(HEALTH, {})
     candidates = [lane for lane in ladder if allowed is None or lane in allowed]
     for lane in candidates:
-        if installed(lane) and healthy(lane, health):
+        if installed(lane) and healthy(lane, health) and credential_usable(lane):
             skipped = candidates[:candidates.index(lane)]
             if skipped:
                 print(f"(skipped: {', '.join(skipped)} — cooldown/missing)", file=sys.stderr)
