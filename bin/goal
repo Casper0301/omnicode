@@ -2,8 +2,8 @@
 """goal — omnicode durable goal ledger (2026-07-18).
 
 The goal lives OUTSIDE any model: a JSON spec with machine-checkable acceptance
-commands, plus an append-only event log. Any harness (Claude Code, Codex CLI or
-app, grok, glm, agy) reads `goal step` to pick up work and runs `goal check` to
+commands, plus an append-only event log. Any trusted harness (Pi, Claude Code,
+Codex, Grok, or GLM) reads `goal step` to resume work and runs `goal check` to
 prove it done. The outer loop that drives it lives in the harness (Claude /loop,
 Codex Goal Mode, cron); this CLI is the state.
 

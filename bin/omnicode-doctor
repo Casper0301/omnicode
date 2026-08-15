@@ -11,6 +11,9 @@
 # Exit 0 = no FAIL. Exit 1 = at least one FAIL.
 set -uo pipefail
 H="$HOME"
+# launchd starts with a thin PATH. Every owned CLI is under ~/.local/bin and
+# Grok keeps its binary under ~/.grok/bin; add deterministic system locations.
+export PATH="$H/.local/bin:$H/.grok/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 FAST=0; LIVE=0; RECORD=0
 for a in "$@"; do case "$a" in --fast) FAST=1;; --live) LIVE=1;; --record) RECORD=1;; esac; done
 
@@ -45,16 +48,12 @@ if command -v grok >/dev/null 2>&1; then
   else fail "grok auth probe failed — run: grok login"; fi
 else fail "grok CLI missing"; fi
 
-if command -v agy >/dev/null 2>&1; then
-  pass "agy installed ($(to 10 agy --version | head -1)) — quota state only visible on use"
-else fail "agy CLI missing"; fi
-
 if [ -x "$H/.local/bin/glm" ] && [ -r "$H/.config/zai/token" ]; then pass "glm launcher + z.ai token present"
 else fail "glm launcher or ~/.config/zai/token missing"; fi
 
 if command -v dcode >/dev/null 2>&1; then
   if [ "$FAST" = 1 ]; then pass "dcode installed (auth probe skipped --fast)"
-  elif to 25 env LANGGRAPH_ALLOW_BLOCKING=true dcode auth list | grep -qE "openai_codex\s+stored"; then
+  elif to 25 env -u OPENAI_API_KEY -u OPENAI_BASE_URL dcode auth list | grep -qE "openai_codex\s+stored"; then
     pass "dcode installed + openai_codex auth stored"
   else fail "dcode openai_codex auth not stored — run: dcode auth set openai_codex"; fi
 else fail "dcode CLI missing"; fi
@@ -88,8 +87,14 @@ if [ -w "$H/.lanes" ] || mkdir -p "$H/.lanes" 2>/dev/null; then pass "~/.lanes w
 MARK="omnicode-selftest-$$"
 S=$(lanes start doctor-selftest -- echo "$MARK" 2>/dev/null | awk -F= '/^SESSION=/{print $2}')
 if [ -n "$S" ] && lanes wait "$S" 30 >/dev/null 2>&1 && grep -q "$MARK" "$H/.lanes/$S.log" 2>/dev/null; then
-  pass "lanes round-trip (start->wait->log) works"
-else fail "lanes round-trip failed (session=$S)"; fi
+  pass "lanes success round-trip (start->wait->log) works"
+else fail "lanes success round-trip failed (session=$S)"; fi
+FAIL_S=$(lanes start doctor-failure -- sh -c 'exit 7' 2>/dev/null | awk -F= '/^SESSION=/{print $2}')
+lanes wait "$FAIL_S" 30 >/dev/null 2>&1; FAIL_WAIT=$?
+lanes result "$FAIL_S" >/dev/null 2>&1; FAIL_RESULT=$?
+if [ "$FAIL_WAIT" -eq 7 ] && [ "$FAIL_RESULT" -eq 7 ]; then
+  pass "lanes propagates and persists vendor failure exit codes"
+else fail "lanes masked failure exit (wait=$FAIL_WAIT result=$FAIL_RESULT session=$FAIL_S)"; fi
 
 # ---------------------------------------------------------------- uib browser
 sect "uib browser (UI verification loop)"
@@ -122,7 +127,7 @@ sect "shared brain + doctrine coherence"
 CANON=$(python3 -c "import os;print(os.path.realpath(os.path.expanduser('~/.ai-memory/MEMORY.md')))" 2>/dev/null)
 if [ -n "$CANON" ] && [ -f "$CANON" ]; then pass "brain file exists ($CANON)"; else fail "~/.ai-memory/MEMORY.md unresolvable"; fi
 DRIFT=0
-for f in "$H/.codex/AGENTS.md" "$H/.gemini/GEMINI.md" "$H/.grok/AGENTS.md"; do
+for f in "$H/.codex/AGENTS.md" "$H/.grok/AGENTS.md"; do
   R=$(python3 -c "import os;print(os.path.realpath('$f'))" 2>/dev/null)
   if [ "$R" = "$CANON" ]; then pass "brain link OK: $f"
   else DRIFT=1; fail "brain link DRIFT: $f -> $R (expected $CANON)"; fi
@@ -137,13 +142,16 @@ else fail "shared brain does not mention lane-pick"; fi
 
 # ---------------------------------------------------------------- wrapper agents
 sect "lane wrapper agents"
-for a in fable-advisor codex-implementer grok-implementer antigravity-implementer gemini-reviewer glm-longcontext dcode-implementer; do
+for a in fable-advisor codex-implementer grok-implementer glm-longcontext dcode-implementer; do
   [ -f "$H/.claude/agents/$a.md" ] && pass "agent $a present" || fail "agent $a.md missing"
 done
-for a in codex-implementer grok-implementer antigravity-implementer glm-longcontext dcode-implementer; do
+for a in codex-implementer grok-implementer glm-longcontext dcode-implementer; do
   grep -q "Rate-limit fallback" "$H/.claude/agents/$a.md" 2>/dev/null \
     && pass "$a carries fallback protocol" || fail "$a missing fallback protocol"
 done
+if [ -e "$H/.claude/agents/antigravity-implementer.md" ] || [ -e "$H/.claude/agents/gemini-reviewer.md" ]; then
+  fail "retired Gemini/Antigravity wrapper still installed — run scripts/apply.sh"
+else pass "retired Gemini/Antigravity wrappers absent"; fi
 # Match only a BARE invocation line (the bug); prose warnings quoting the pattern are fine.
 if grep -qE -- '^[[:space:]]*- < "\$SPEC"[[:space:]]*\\?$' "$H/.claude/agents/codex-implementer.md" 2>/dev/null; then
   fail "codex-implementer still documents the stdin-redirect invocation (hangs under lanes)"
@@ -152,6 +160,15 @@ else pass "codex-implementer stdin bug absent"; fi
 # ---------------------------------------------------------------- skills / MCP / workflows
 sect "skills, MCP, workflows"
 [ -f "$H/.claude/workflows/race-and-judge.mjs" ] && pass "race-and-judge workflow present" || fail "race-and-judge.mjs missing"
+if grep -q -- '- < "$SPEC"' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
+  fail "race-and-judge reintroduces the Codex stdin hang"
+else pass "race-and-judge Codex prompt is positional"; fi
+if grep -qiE 'antigravity|gemini|\bagy\b' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
+  fail "race-and-judge still routes a retired Gemini/Antigravity lane"
+else pass "race-and-judge has no Gemini/Antigravity lane"; fi
+if grep -qE 'stash or reset them|git stash|reset --hard|stash -u' "$H/.agents/skills/omnicode/SKILL.md" 2>/dev/null; then
+  fail "omnicode skill contains destructive fallback cleanup guidance"
+else pass "omnicode skill bans destructive fallback cleanup"; fi
 if [ "$(readlink "$H/.agents/skills/omnicode" 2>/dev/null)" = "$H/Projects/omnicode/skill" ] \
    && [ "$(readlink "$H/.claude/skills/omnicode" 2>/dev/null)" = "$H/Projects/omnicode/skill" ] \
    && [ -f "$H/.agents/skills/omnicode/SKILL.md" ] \
@@ -182,6 +199,19 @@ done
 [ $BADG -eq 0 ] && pass "all goal files parse"
 OPEN=$(goal list 2>/dev/null | grep -c '^open' || true)
 say "       open goals: ${OPEN:-0}"
+
+# ---------------------------------------------------------------- repo self-tests
+sect "repo self-tests"
+REPO="$H/Projects/omnicode"
+if [ -f "$REPO/tests/test_lane_pick.py" ]; then
+  if python3 "$REPO/tests/test_lane_pick.py" >/dev/null 2>&1; then
+    pass "omnicode unit tests pass"
+  else
+    fail "omnicode unit tests fail — run: python3 $REPO/tests/test_lane_pick.py"
+  fi
+else
+  warn "repo tests unavailable at $REPO"
+fi
 
 # ---------------------------------------------------------------- state hygiene
 sect "state hygiene"

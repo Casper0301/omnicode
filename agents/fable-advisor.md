@@ -1,6 +1,6 @@
 ---
 name: fable-advisor
-description: Second-opinion advisor running the session's strongest model (Fable 5 under Claude Max /model fable; inherits the session under glm — no hard model pin, so it works in both). Consult at commitment boundaries — before architectural decisions, data migrations, big refactors, or API designs, and whenever the same problem has resisted two attempts. Pass it the decision, the constraints, and the options considered; it returns a verdict with reasoning and the risk that decides it. Advises only — never implements.
+description: Second-opinion advisor running Fable 5 in compatible harnesses. Consult at commitment boundaries — before architectural decisions, data migrations, big refactors, or API designs, and whenever the same problem has resisted two attempts. Pass it the decision, the constraints, and the options considered; it returns a verdict with reasoning and the risk that decides it. Advises only — never implements.
 tools: Read, Grep, Glob
 ---
 

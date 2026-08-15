@@ -201,22 +201,33 @@ def main():
 
     if cmd == "status":
         health = load(HEALTH, {})
-        lanes = sorted(set(list(BINARIES) + list(health)))
+        configured = {
+            lane
+            for ladder in ladders.get("classes", {}).values()
+            for lane in ladder
+        }
+        # Ignore stale health entries for retired/unconfigured lanes: printing
+        # "gemini OK" after that lane was removed created false capability.
+        lanes = sorted(set(BINARIES) | configured)
         for lane in lanes:
             entry = health.get(lane)
             if entry and entry.get("until", 0) > time.time():
                 print(f"{lane:8} COOLDOWN until {fmt_until(entry['until'])} — {entry.get('reason', '?')}")
+                continue
+            cred = credential_state(lane)
+            if not installed(lane):
+                state = "NOT INSTALLED"
+            elif cred == "expired":
+                state = "CREDENTIAL EXPIRED - needs interactive re-auth"
+            elif cred == "missing":
+                state = "CREDENTIAL MISSING"
+            elif cred == "ok":
+                state = "AUTH OK"
+            elif lane == "claude":
+                state = "CURRENT SESSION FALLBACK (health not probed)"
             else:
-                cred = credential_state(lane)
-                if not installed(lane):
-                    state = "NOT INSTALLED"
-                elif cred == "expired":
-                    state = "CREDENTIAL EXPIRED - needs interactive re-auth"
-                elif cred == "missing":
-                    state = "CREDENTIAL MISSING"
-                else:
-                    state = "OK"
-                print(f"{lane:8} {state}")
+                state = "AVAILABLE (auth not probed)"
+            print(f"{lane:8} {state}")
         return 0
 
     if cmd == "classes":

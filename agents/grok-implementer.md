@@ -119,7 +119,7 @@ Do not run the CLI as a bare or background shell command. Wrap your documented i
    `lanes start grok -- <your full documented CLI invocation>`
    ⚠️ Strip the `> /tmp/grok-final-$$.txt 2>&1` capture (and any other shell redirect) from the wrapped command — redirects apply to `lanes start` itself, not the CLI inside tmux, and swallow the `SESSION=` line. Grok's final message is the tail of `LOG`; read it there.
    Returns immediately and prints `SESSION=lane-grok-…` and `LOG=…` — note both.
-2. Wait bounded: `lanes wait <SESSION> 540` — exit 0 = lane finished, exit 142 = still running, call `lanes wait` again. Never busy-poll, never sleep-loop.
+2. Wait bounded: `lanes wait <SESSION> 540` — exit 0 = Grok succeeded, exit 142 = still running, any other code = Grok failed. Call wait again only on 142; never sleep-poll.
 3. Read the lane's final output from `LOG`, verify per the spec, and include a `SESSION:` line in your report so the caller can tell the user where to watch (`tmux attach -t <SESSION>`, detach Ctrl-b d).
 
 Never `lanes kill` a session the user may be attached to without being asked.

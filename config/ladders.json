@@ -1,16 +1,16 @@
 {
-  "_doc": "Omnicode fallback ladders — first healthy lane wins. Edited by hand; consumed by ~/.local/bin/lane-pick. Lanes sharing one subscription quota are grouped in quota_groups (marking one marks all).",
+  "_doc": "Omnicode fallback ladders — first healthy configured lane wins. Lanes sharing one subscription quota are grouped in quota_groups.",
   "quota_groups": {
     "openai": ["codex", "dcode"]
   },
   "classes": {
-    "code":         ["grok", "glm", "codex", "claude"],
-    "correctness":  ["codex", "glm", "grok", "claude"],
-    "langchain":    ["dcode", "glm", "claude"],
-    "longcontext":  ["glm", "claude"],
-    "research":     ["agy", "glm", "grok", "codex", "claude"],
-    "review":       ["glm", "grok", "codex", "claude"],
-    "ui":           ["claude", "glm", "codex", "grok"],
+    "code": ["grok", "glm", "codex", "claude"],
+    "correctness": ["codex", "glm", "grok", "claude"],
+    "langchain": ["dcode", "glm", "claude"],
+    "longcontext": ["glm", "claude"],
+    "research": ["glm", "grok", "codex", "claude"],
+    "review": ["glm", "grok", "codex", "claude"],
+    "ui": ["claude", "glm", "codex", "grok"],
     "architecture": ["claude"]
   }
 }

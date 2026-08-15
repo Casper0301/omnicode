@@ -28,11 +28,13 @@ cp "$H/.uib/package.json"  "$REPO/uib/package.json"
 # Config
 cp "$H/.claude/omnicode/ladders.json" "$REPO/config/ladders.json"
 
-# Lane wrapper agents (the omnicode seven)
-for a in fable-advisor codex-implementer grok-implementer antigravity-implementer \
-         gemini-reviewer glm-longcontext dcode-implementer; do
+# Active lane wrapper agents. Gemini/Antigravity lanes are retired by policy.
+for a in fable-advisor codex-implementer grok-implementer glm-longcontext \
+         dcode-implementer; do
   cp "$H/.claude/agents/$a.md" "$REPO/agents/$a.md"
 done
+rm -f "$REPO/agents/antigravity-implementer.md" \
+      "$REPO/agents/gemini-reviewer.md"
 
 # Workflows
 cp "$H/.claude/workflows/race-and-judge.mjs" "$REPO/workflows/race-and-judge.mjs"

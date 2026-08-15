@@ -1,4 +1,4 @@
-omnicode-doctor — 2026-07-18 13:27 — host Caspers-MacBook-Pro
+omnicode-doctor — 2026-08-16 00:32 — host Caspers-MacBook-Pro
 
 == core binaries ==
 [PASS] tmux on PATH
@@ -13,7 +13,6 @@ omnicode-doctor — 2026-07-18 13:27 — host Caspers-MacBook-Pro
 == lane CLIs + subscription auth (token-free probes) ==
 [PASS] codex installed + ChatGPT auth OK
 [PASS] grok installed + xAI auth OK
-[PASS] agy installed (1.1.3) — quota state only visible on use
 [PASS] glm launcher + z.ai token present
 [PASS] dcode installed + openai_codex auth stored
 
@@ -24,9 +23,9 @@ omnicode-doctor — 2026-07-18 13:27 — host Caspers-MacBook-Pro
 [PASS] class code -> grok
 [PASS] class correctness -> codex
 [PASS] class langchain -> dcode
-[PASS] class longcontext -> glm
-[PASS] class research -> glm
-[PASS] class review -> glm
+[PASS] class longcontext -> claude
+[PASS] class research -> grok
+[PASS] class review -> grok
 [PASS] class ui -> claude
 [PASS] class architecture -> claude
 
@@ -34,7 +33,8 @@ omnicode-doctor — 2026-07-18 13:27 — host Caspers-MacBook-Pro
 [PASS] lanes executable
 [PASS] lanes carries the rate-limit auto-scan hook
 [PASS] ~/.lanes writable
-[PASS] lanes round-trip (start->wait->log) works
+[PASS] lanes success round-trip (start->wait->log) works
+[PASS] lanes propagates and persists vendor failure exit codes
 
 == uib browser (UI verification loop) ==
 [PASS] uib shim + implementation present
@@ -44,7 +44,6 @@ omnicode-doctor — 2026-07-18 13:27 — host Caspers-MacBook-Pro
 == shared brain + doctrine coherence ==
 [PASS] brain file exists (/Users/casperschive/.claude/projects/-Users-casperschive-Projects/memory/MEMORY.md)
 [PASS] brain link OK: /Users/casperschive/.codex/AGENTS.md
-[PASS] brain link OK: /Users/casperschive/.gemini/GEMINI.md
 [PASS] brain link OK: /Users/casperschive/.grok/AGENTS.md
 [PASS] all vendor CLIs read the SAME brain
 [PASS] doctrine carries fallback + uib sections
@@ -54,19 +53,21 @@ omnicode-doctor — 2026-07-18 13:27 — host Caspers-MacBook-Pro
 [PASS] agent fable-advisor present
 [PASS] agent codex-implementer present
 [PASS] agent grok-implementer present
-[PASS] agent antigravity-implementer present
-[PASS] agent gemini-reviewer present
 [PASS] agent glm-longcontext present
 [PASS] agent dcode-implementer present
 [PASS] codex-implementer carries fallback protocol
 [PASS] grok-implementer carries fallback protocol
-[PASS] antigravity-implementer carries fallback protocol
 [PASS] glm-longcontext carries fallback protocol
 [PASS] dcode-implementer carries fallback protocol
+[PASS] retired Gemini/Antigravity wrappers absent
 [PASS] codex-implementer stdin bug absent
 
 == skills, MCP, workflows ==
 [PASS] race-and-judge workflow present
+[PASS] race-and-judge Codex prompt is positional
+[PASS] race-and-judge has no Gemini/Antigravity lane
+[PASS] omnicode skill bans destructive fallback cleanup
+[PASS] omnicode skill symlinked into shared + Claude roots
 [PASS] rjv skill present
 [PASS] agent-harnesses MCP configured
 
@@ -74,13 +75,16 @@ omnicode-doctor — 2026-07-18 13:27 — host Caspers-MacBook-Pro
 [PASS] goal CLI executable
 [PASS] goal round-trip (new->loop->DONE on green acceptance) works
 [PASS] all goal files parse
-       open goals: 0
+       open goals: 3
+
+== repo self-tests ==
+[PASS] omnicode unit tests pass
 
 == state hygiene ==
 [PASS] health.json valid
-agy      COOLDOWN until Thu 04:19 — Google free-tier quota (Individual quota reached, observed 2026-07-17 09:19)
-[PASS] ~/.lanes size OK (14MB)
+glm      COOLDOWN until Sun 00:40 — quota (usage (?:limit|cap))
+[PASS] ~/.lanes size OK (46MB)
 [PASS] no stale lane sessions
 
 == summary ==
-PASS=60 WARN=0 FAIL=0
+PASS=62 WARN=0 FAIL=0

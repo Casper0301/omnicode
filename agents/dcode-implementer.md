@@ -15,7 +15,7 @@ You are the implementation lane for LangGraph / LangChain / deepagents agent cod
 First action, always:
 
 ```bash
-command -v dcode && LANGGRAPH_ALLOW_BLOCKING=true command dcode auth list 2>&1 | grep -E "openai_codex\s+stored"
+command -v dcode && command dcode auth list 2>&1 | grep -E "openai_codex\s+stored"
 ```
 
 The only allowed engine is `-M openai_codex:gpt-5.6-sol --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}'`. `openai_codex` uses ChatGPT subscription OAuth. API-key providers are deliberately not routed, even if credentials happen to be stored. If `openai_codex` is not stored, or dcode is missing, **stop immediately** and return:
@@ -74,23 +74,23 @@ ENGINE=(-M openai_codex:gpt-5.6-sol --model-params '{"reasoning": {"effort": "ma
 # prints SESSION=lane-dcode-… and LOG=~/.lanes/….log — note both.
 lanes start dcode -- \
   perl -e 'alarm shift; exec @ARGV' 660 \
-  env LANGGRAPH_ALLOW_BLOCKING=true LANGSMITH_TRACING=false \
+  env -u OPENAI_API_KEY -u OPENAI_BASE_URL LANGSMITH_TRACING=false \
   dcode --no-mcp "${ENGINE[@]}" \
   -q --timeout 600 \
   -n "$(cat "$SPEC")"
 
-# Bounded wait: exit 0 = lane finished, exit 142 = still running → call `lanes wait` again.
-# Never busy-poll, never sleep-loop. For long specs raise --timeout/alarm and keep waiting
-# in ≤540s slices.
+# Bounded wait: exit 0 = dcode succeeded, exit 142 = still running, any other
+# code = dcode failed. Call wait again only on 142; never sleep-poll. For long
+# specs raise --timeout/alarm and keep waiting in ≤540s slices.
 lanes wait "<SESSION printed above>" 540
 ```
 
 Flag discipline (non-negotiable):
 
-- `LANGGRAPH_ALLOW_BLOCKING=true` — mandatory; dcode embeds a langgraph server that raises on blocking calls without it (langgraph ≥0.11rc).
-- `LANGSMITH_TRACING=false` — implementation traces stay out of LangSmith; the lane sends code only to the selected ChatGPT-subscription model.
-- Plain `dcode` inside `exec` bypasses the interactive zsh wrapper function, which injects `--mcp-config ~/.deepagents/dcode-mcp.json` (Casper's personal MCPs with live credentials). `--no-mcp` makes the exclusion explicit — coding lanes never load personal MCP tools.
-- Engine flags are fixed to `-M openai_codex:gpt-5.6-sol` + `--model-params '{"reasoning": {"effort": "max", "summary": "auto"}}'` (5.6 ladder tops at max; dcode's default is medium — smoke-verified 2026-07-10). `openai_codex` = ChatGPT-subscription OAuth. NEVER use `xai:*`, `openai:*`, `anthropic:*`, or other API-key providers in this lane. If a slug or params are rejected after a `dcode update`, check `dcode config list` / `~/.deepagents/.state/recent_models.json`, retry once with the nearest slug on the SAME `openai_codex` provider, and note the drift in your report.
+- `env -u OPENAI_API_KEY -u OPENAI_BASE_URL` removes the BirdClaw-only placeholder from headless lanes, so the pay-per-token `openai` provider is never falsely marked configured. `LANGSMITH_TRACING=false` keeps implementation traces out of LangSmith; the lane sends code only to the selected ChatGPT-subscription model.
+- `--no-mcp` is mandatory. Dcode 0.1.56's embedded LangGraph server still raises `BlockingError` while resolving MCP paths; inherited `LANGGRAPH_ALLOW_BLOCKING=true` is ineffective because `langgraph_cli dev` overwrites it from its missing `--allow-blocking` flag. Coding lanes never load personal MCP tools.
+- Plain `dcode` inside `exec` bypasses the interactive zsh wrapper function; the wrapper also defaults to `--no-mcp`, but lanes keep the flag explicit.
+- Engine flags are fixed to `-M openai_codex:gpt-5.6-sol` + `--model-params '{"reasoning": {"effort": "max", "summary": "auto"}}'` (5.6 ladder tops at max; dcode's default is medium — smoke-verified 2026-07-10). `openai_codex` = ChatGPT-subscription OAuth. NEVER use `xai:*`, `openai:*`, `anthropic:*`, or other API-key providers in this lane. If a slug or params are rejected after a `dcode update`, check `dcode config` / `~/.deepagents/.state/recent_models.json`, retry once with the nearest slug on the SAME `openai_codex` provider, and note the drift in your report.
 - `-n` — single task then exit. It **auto-executes tool calls including shell commands, no approval gate** (verified 2026-07-10). The spec's Files/Constraints are the only fence — your independent verification covers the rest.
 - `-q` — clean output for parsing. `--timeout 600` — native wall clock, exits 124 on expiry (`STATUS: timeout`). The outer perl alarm at 660 catches hangs before the graph starts.
 - `--rubric TEXT|@PATH` exists (dcode-native acceptance grading) — use only when the caller explicitly supplies rubric criteria; it is never a substitute for your own verification re-run.

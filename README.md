@@ -1,64 +1,69 @@
 # omnicode
 
-The owned layer of Casper's multi-model orchestration system: one architect CLI
-(Claude Code on Claude Max) drives cross-vendor implementer lanes — Codex
-(ChatGPT sub), Grok (xAI sub), Antigravity/agy (Google, free), GLM-5.2 (z.ai,
-1M ctx), dcode (LangChain harness on the ChatGPT sub) — **subscription auth
-only, zero API keys**, with automatic rate-limit fallback and a native browser
-loop for UI work.
+Casper's owned multi-model orchestration layer: one trusted architect session routes bounded work to subscription-backed Codex, Grok, GLM, and dcode lanes, then independently verifies the result. It provides visible tmux execution, quota-aware fallback, a durable goal ledger, isolated high-stakes race-and-judge, and a clean-profile UI loop.
 
-Casper has pre-authorized every provider he deliberately configures in Omnicode
-to receive the private repository context required for its assigned lane. Source,
-diffs, history, visions/specs, tests, and relevant logs may cross provider
-boundaries without a repeated consent prompt. Credentials, provider tokens,
-customer data, and unrelated personal data remain stripped because lanes do not
-need them.
+**Current lane policy:** no Gemini or Antigravity lane. Non-Anthropic cross-checks route to Grok first and Codex second.
 
-Same pattern as `openclaw-hq`: this repo versions the system; `scripts/pull.sh`
-syncs live → repo (with a secret-scan gate), `scripts/apply.sh` installs
-repo → live.
+Configured providers may receive the private repository context needed for an assigned task: relevant source, diffs, tests, and logs. That is not credential or customer-data authorization. Common API-key and GitHub environment variables are stripped, but the runner is not filesystem-level secret isolation; do not expose `.env` files, tokens, customer data, or unrelated personal data.
+
+The repo versions the system. `scripts/pull.sh` syncs live → repo with a secret-scan gate. `scripts/apply.sh` installs repo → live. The doctrine copy under `doctrine/` is generated from `~/.ai-memory/multi-model-orchestration.md`; edit the memory source, then pull.
 
 ## Layout
 
-| Path | What |
+| Path | Purpose |
 |---|---|
-| `bin/lanes` | tmux lane runner (watchable sessions, logs, completion signal, rate-limit auto-scan on exit) |
-| `bin/lane-pick` | fallback router: task class → strongest healthy lane; optional `--allow lane,lane` keeps hardened callers inside their reviewed adapter set; cooldowns in `~/.lanes/health.json` |
-| `bin/uib` + `uib/` | clean-profile Playwright browser daemon+CLI for iterative UI review (open/shot/snapshot @refs/click/fill/eval/console) |
-| `bin/omnicode-doctor` | deep health check — see Monitoring |
-| `config/ladders.json` | per-class fallback ladders + quota groups (codex+dcode share ChatGPT quota) |
-| `agents/` | the seven lane wrapper subagents (`~/.claude/agents/`) |
-| `workflows/race-and-judge.mjs` | high-stakes race: 4 families implement → judge → cross-vendor verify |
-| `doctrine/` | versioned COPY of the doctrine — source of truth stays `~/.ai-memory/multi-model-orchestration.md` |
-| `launchd/` | daily silent doctor run (08:45) |
-| `STATUS.md` | last recorded doctor output |
+| `bin/lanes` | Watchable tmux lane runner with logs, durable exit codes, and rate-limit auto-scan |
+| `bin/lane-pick` | Task class → strongest configured healthy lane; cooldowns in `~/.lanes/health.json` |
+| `bin/goal` | Durable cross-harness goals with machine-checkable acceptance |
+| `bin/uib` + `uib/` | Clean-profile Playwright UI review CLI |
+| `bin/omnicode-doctor` | Functional installation and behavior checks |
+| `config/ladders.json` | Ordered fallback ladders and shared quota groups |
+| `agents/` | Active Claude Code wrapper agents: Fable advisor, Codex, Grok, GLM, dcode |
+| `workflows/race-and-judge.mjs` | High-stakes race: Opus/Codex/Grok implement, Opus judges, GLM verifies |
+| `skill/SKILL.md` | Harness-aware operational interface discovered by Pi and Claude Code |
+| `doctrine/` | Versioned copy of the external doctrine source |
+| `STATUS.md` | Dated doctor snapshot, not live health |
 
-## Monitoring — "does it actually work?"
+## Core usage
 
-`omnicode-doctor` functionally probes every layer, token-free by default:
+```bash
+lane-pick code
+lanes start <name> -- <vendor command...>
+lanes wait <SESSION> 540   # 0=vendor success; 142=still running; other=failed
+lanes result <SESSION>
+omnicode-doctor
+goal list
+```
 
-- **CLIs + auth**: codex/grok/agy/glm/dcode installed and subscription-authed
-- **Router**: ladders parse, every class resolves, quota groups intact
-- **Lanes**: real tmux round-trip, auto-scan hook present
-- **uib**: real browser round-trip on an offline-safe `data:` URL
-- **Shared brain**: all vendor symlinks resolve to the SAME file; doctrine carries the fallback + uib sections; brain mentions the router
-- **Wrappers**: all seven present, fallback protocol in each lane, known bugs absent
-- **Skills/MCP/workflows**: rjv, race-and-judge, agent-harnesses MCP
-- **State**: health.json, stale daemons, log bloat, forgotten tmux sessions
+In Pi, launch external vendor CLIs through `lanes`; Claude-host wrapper subagents can fail on Anthropic quota before the requested vendor starts. In Claude Code, prefer the wrapper agents in `~/.claude/agents/`.
 
-Flags: `--fast` (skip slow probes) · `--live` (one real prompt through the top
-healthy code lane — burns a little quota, proves end-to-end) · `--record`
-(write `~/.omnicode/doctor-last.txt` + history line).
+## Monitoring
 
-A launchd job runs `omnicode-doctor --record` daily at 08:45, silently.
-History: `~/.omnicode/doctor-history.log`. No notifications by design — check
-`STATUS.md` after a pull, or run the doctor any time.
+`omnicode-doctor` runs token-free functional checks by default:
 
-## Sync rules
+- required binaries and subscription-auth probes
+- router classes, quota groups, and credential state
+- real `lanes` success/failure round-trips and exit-code propagation
+- `uib` clean-profile browser round-trip
+- shared-brain links and doctrine coherence
+- active wrappers and retired-lane absence
+- skill/workflow safety regressions
+- goal-ledger round-trip
+- repository unit tests and state hygiene
 
-- Changed something live → `scripts/pull.sh` → commit+push (scan must be clean).
-- Changed something here → `scripts/apply.sh` (never edits doctrine live).
-- Doctrine edits happen in `~/.ai-memory/` (the shared brain), never here.
+Flags: `--fast` skips slower auth/browser probes. `--live` sends one tiny prompt through the top healthy code lane and burns quota. `--record` updates `~/.omnicode/doctor-last.txt` and history.
 
----
-Maintained via Claude Code (omnicode architect sessions). Created 2026-07-18.
+Launchd runs `omnicode-doctor --record` daily at 08:45. `STATUS.md` changes only after `scripts/pull.sh`; always check its timestamp and rerun the doctor for current truth.
+
+## Sync
+
+```bash
+# Live changed first
+./scripts/pull.sh
+
+# Repo changed first
+./scripts/apply.sh
+omnicode-doctor
+```
+
+Doctrine is never applied from this repo. Update `~/.ai-memory/multi-model-orchestration.md`, then use `scripts/pull.sh` to refresh the versioned copy.

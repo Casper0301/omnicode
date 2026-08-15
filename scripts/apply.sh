@@ -20,6 +20,7 @@ echo "== apply: $REPO -> live system"
 
 install -m 755 "$REPO/bin/lanes"            "$H/.local/bin/lanes"
 install -m 755 "$REPO/bin/lane-pick"        "$H/.local/bin/lane-pick"
+install -m 755 "$REPO/bin/goal"             "$H/.local/bin/goal"
 install -m 755 "$REPO/bin/uib"              "$H/.local/bin/uib"
 install -m 755 "$REPO/bin/omnicode-doctor"  "$H/.local/bin/omnicode-doctor"
 
@@ -37,6 +38,10 @@ cp "$REPO/config/ladders.json" "$H/.claude/omnicode/ladders.json"
 for a in "$REPO"/agents/*.md; do
   cp "$a" "$H/.claude/agents/$(basename "$a")"
 done
+# Current policy has no Gemini/Antigravity lane. Remove retired wrappers so
+# agent discovery cannot advertise capabilities that must not be routed.
+rm -f "$H/.claude/agents/antigravity-implementer.md" \
+      "$H/.claude/agents/gemini-reviewer.md"
 
 cp "$REPO/workflows/race-and-judge.mjs" "$H/.claude/workflows/race-and-judge.mjs"
 

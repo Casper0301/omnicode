@@ -115,9 +115,9 @@ Do not run the CLI as a bare or background shell command. Wrap your documented i
    `lanes start codex -- <your full documented CLI invocation>`
    ⚠️ Strip ALL shell redirects (`- < "$SPEC"`, `> file`, `2>&1`) from the wrapped command — redirects apply to `lanes start` itself, not the CLI inside tmux: stdin redirects hang the CLI forever, stdout captures swallow the `SESSION=` line. Pass the prompt positionally and read output from `LOG`.
    Returns immediately and prints `SESSION=lane-codex-…` and `LOG=…` — note both.
-2. Wait bounded: `lanes wait <SESSION> 540` — exit 0 = lane finished, exit 142 = still running, call `lanes wait` again. Never busy-poll, never sleep-loop.
+2. Wait bounded: `lanes wait <SESSION> 540` — exit 0 = Codex succeeded, exit 142 = still running, any other code = Codex failed. Call wait again only on 142; never sleep-poll.
 3. Read the lane's final output from `LOG`, verify per the spec, and include a `SESSION:` line in your report so the caller can tell the user where to watch (`tmux attach -t <SESSION>`, detach Ctrl-b d).
 
 Never `lanes kill` a session the user may be attached to without being asked.
 
-`lanes` removes API-key variables and GitHub credentials by default. Do not bypass that guard with `OMNICODE_ALLOW_GITHUB=1`; implementer lanes edit and verify, while the trusted orchestrator owns commits, pushes, and PRs.
+`lanes` removes common API-key variables, SSH-agent access, and GitHub credentials. Implementer lanes edit and verify; only the trusted orchestrator commits, pushes, or opens PRs. This is process-level protection, not filesystem secret isolation.

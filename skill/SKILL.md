@@ -1,75 +1,125 @@
 ---
 name: omnicode
-description: Use when orchestrating work across the omnicode lane system or its tools — delegating implementation to codex/grok/glm/agy/dcode lanes, handling lane rate limits or quota cooldowns, creating or resuming durable goals, racing high-stakes implementations, reviewing UI from a terminal session with uib, or when the user says "omnicode", "lane", "lanes", "lane-pick", "goal ledger", "race and judge", or asks which model/CLI should run a task.
+description: Use when orchestrating work across the omnicode lane system or its tools — routing implementation and review to codex/grok/glm/dcode, handling quota fallback, creating durable goals, racing high-stakes implementations, or using uib for terminal-driven UI review. Triggers on "omnicode", "lane", "lanes", "lane-pick", "goal ledger", "race and judge", "RJV", or model/CLI routing decisions.
 ---
 
-# omnicode — operating the multi-model lane system
+# omnicode — reliable multi-model orchestration
 
-Architect (this session) emits judgment and specs; cheap cross-vendor lanes do the typing; acceptance commands — never model judgment — decide done. High-level doctrine is already in the shared brain; this skill carries the **exact command surface** sessions otherwise guess wrong.
+The current session is the architect and final authority. Subscription-backed external models do bounded work from a complete spec; machine checks and direct inspection decide done. This file is the operational interface. Deeper rationale lives in `~/.ai-memory/multi-model-orchestration.md`.
 
-## Launching a lane (the part everyone gets wrong)
+## Pick the route before launching
 
-Preferred: the wrapper subagents (`codex-implementer`, `grok-implementer`, `glm-longcontext`, `dcode-implementer`, `antigravity-implementer` in `~/.claude/agents/`) — they hold the canonical CLI flags, preflight, and report format. Direct Bash lanes must copy the wrapper's documented invocation exactly. Shape:
+| Task | Primary route |
+|---|---|
+| Well-specified code | `lane-pick code` (normally grok) |
+| Correctness-critical code/review | `lane-pick correctness` (normally codex) |
+| LangGraph/LangChain/deepagents code | `lane-pick langchain` (normally dcode; shares codex quota) |
+| Context beyond normal windows | `lane-pick longcontext` (glm) |
+| Research or adversarial review | `lane-pick research` / `lane-pick review` |
+| Architecture/API/migration/refactor | architect session; consult `fable-advisor` when available |
+| UI implementation/review | architect plus `uib`; route code by risk |
+| High-stakes implementation | `/rjv` only after the RJV preflight below |
 
-```bash
-lanes start <name> -- <full vendor CLI command>   # prints SESSION=lane-<name>-… and LOG=~/.lanes/<session>.log
-lanes wait <SESSION> 540    # max SECONDS; exit 0 = done, 142 = still running → call wait again (never sleep-poll)
-lanes peek <SESSION> 25     # last N LINES of live pane; `lanes log <SESSION>` tails the log; attach: tmux attach -t <SESSION>
-lanes kill <SESSION>        # kill a hung lane (never one the user may be watching, unasked)
-```
+**No Gemini/Antigravity lane.** Current policy routes non-Anthropic cross-checks to grok first, codex second.
 
-Full grok example (spec file written first via mktemp):
+Every implementation delegation needs five explicit parts: **Objective · Files · Interfaces · Constraints · Verification command**. If any part is unclear, finish the decision in the architect session instead of delegating ambiguity.
 
-```bash
-lanes start grok -- grok --prompt-file "$SPEC" -m grok-4.5 --permission-mode acceptEdits --output-format plain --cwd "$(pwd)"
-```
+## Harness-aware launch
 
-⚠️ **Never put shell redirects inside the wrapped command** (`- < "$SPEC"`, `> file`) — they apply to `lanes start` itself; stdin redirects hang the CLI forever (proven 35-min hang), stdout captures swallow `SESSION=`. Pass prompts positionally/by flag; read results from `LOG`. Codex prompt goes as the final positional arg: `codex exec … "$(cat "$SPEC")"`. Never `model_reasoning_effort=ultra`.
+**Pi:** launch external vendor CLIs through `lanes` using the exact invocation in the matching repo agent file. Do not route through a Claude-host wrapper merely to reach another CLI: that wrapper can exhaust Anthropic quota before the requested vendor starts.
 
-## Fallback (rate limits)
+**Claude Code:** prefer the wrapper agents in `~/.claude/agents/`; they own preflight, canonical flags, bounded waits, and report format. Direct Bash must match their current invocation exactly.
 
-`lanes` auto-scans each lane log on exit and cooldowns the vendor in `~/.lanes/health.json`. Classes map to ORDERED ladders (not one lane each) in `~/.claude/omnicode/ladders.json`.
+Before any mutation lane:
 
-```bash
-lane-pick <class>                 # code|correctness|langchain|longcontext|research|review|ui|architecture → prints lane, exit 3 = none healthy
-lane-pick <class> --allow x,y     # same ladder/cooldowns, restricted to a reviewed ordered set; caller order never overrides ladder order
-lane-pick status                  # cooldown table
-lane-pick mark <lane> [sec] [why] # manual cooldown (default 14400); codex+dcode marked together (shared quota)
-lane-pick clear <lane>            # when a subscription resets early
-```
+1. Run `git status --short` and inspect the existing diff.
+2. Keep one writer per checkout. Use a clean dedicated worktree when the checkout is shared or dirty.
+3. Do not launch a mutation lane into unrelated uncommitted work.
+4. Treat the verification command as trusted code: it must be reviewed, deterministic, bounded, and non-destructive.
 
-On fallback: first check `git status` — a dead lane may have left partial edits; stash or reset them so the replacement starts clean. Then re-run the **same spec** through the replacement lane (lanes are stateless workers — no partial-output resume; durable state lives in the goal ledger), and report `STATUS: complete-via-fallback` + `LANE: x→y (reason, resumes ~time)`. `claude` returned = do it yourself in-session, still reported.
+Provider context sharing is pre-authorized for relevant source, diffs, tests, and logs. It is **not** credential or customer-data authorization. `lanes` strips common environment credentials and GitHub access, but it is not filesystem-level secret isolation; exclude `.env` files, tokens, customer data, and unrelated personal data from lane-readable scope.
 
-## Goal ledger (durable, cross-harness)
-
-```bash
-goal new <slug> --objective "…" --acceptance "cmd" [--acceptance …] [--class code] [--cwd DIR]
-                                  # --acceptance REQUIRED (all must exit 0 = done); verb is `new`, not `create`
-goal step <slug>                  # resume packet — feed to ANY model/harness
-goal check <slug>                 # runs acceptance; all green → status done (exit 0)
-goal loop <slug>                  # outer-loop tick: exit 0 DONE, exit 3 work-remains (packet printed)
-goal next <slug> "…" · goal note <slug> "…" · goal lane <slug> <lane> "what" · goal list · goal show <slug>
-```
-
-`goal done` REFUSES while acceptance is red — that is the point. Start anything multi-session with `goal new`. Drivers: Claude Code `/loop run goal loop <slug>; on exit 3 execute the packet, then repeat` (self-paced; add an interval like `/loop 15m …` for slow burns) · Codex Goal Mode (`/goal` → "run goal step + follow PROTOCOL until goal check is green") · cron for multi-day.
-
-## uib (UI review loop)
+## `lanes` — visible, bounded execution
 
 ```bash
-uib open http://localhost:5173 [--vp 375x812]   # bare URL; persistent clean-profile daemon
-uib shot /tmp/ui.png [--full]                   # output path REQUIRED → Read the png (vision)
-uib snapshot                                    # a11y tree with @eN refs → uib click @e12 | uib click "css"
-uib fill <@ref|css> "text" · uib press Enter · uib eval 'js' · uib console 20 · uib url · uib stop
+lanes start <name> -- <full vendor command>  # prints SESSION= and LOG=
+lanes wait <SESSION> 540                     # 0=vendor success; 142=still running; other=failed
+lanes result <SESSION>                       # replay the recorded vendor exit code
+lanes peek <SESSION> 25
+lanes log <SESSION> 40
+lanes attach <SESSION>
+lanes kill <SESSION>                         # only sessions you own and the user is not watching
 ```
 
-Re-render after an edit: `uib open <url>` again (or `uib eval 'location.reload()'`), then re-shot. Vision lanes (claude/glm/codex) read shots themselves; grok gets the png path reviewed by the architect.
+Example:
 
-## Rules that survive pressure
+```bash
+SPEC=$(mktemp -t omnicode-spec.XXXXXX)
+# Write the complete five-part spec to $SPEC.
+lanes start grok -- perl -e 'alarm shift; exec @ARGV' 600 \
+  grok --prompt-file "$SPEC" -m grok-4.5 \
+  --permission-mode acceptEdits --output-format plain --cwd "$(pwd)"
+```
 
-- **Provider sharing is pre-authorized.** Casper explicitly authorizes every provider he deliberately adds to Omnicode to receive the private project source, diffs, history, vision/specs, tests, and logs needed for assigned work. Do not pause for per-provider or per-private-repo consent. Continue stripping credentials, provider/API tokens, customer data, and unrelated personal data; lanes need project context, not secrets.
-- Verification is re-run by YOU; a lane's "it works" is never evidence.
-- Race-and-judge (`/rjv`) only for high-stakes; commit/stash before invoking (lanes branch from HEAD).
-- Cooldown marks from lane logs can false-positive on third-party tool errors (Firecrawl "out of credits" ≠ grok quota) — check `lane-pick status` reasons before believing an outage.
-- Health: `omnicode-doctor` (60 functional checks; `--live` = real lane probe). Repo: `~/Projects/omnicode` — live changes → `scripts/pull.sh` + push.
+Never put shell redirects inside the wrapped command. `- < "$SPEC"` makes detached Codex wait forever; `> file` can swallow `SESSION=`. Pass prompts by flag or positional argument and read the returned `LOG`. A finished session is not evidence by itself: inspect `lanes result`, the log, the diff, and re-run verification.
 
-Depth: `~/.ai-memory/multi-model-orchestration.md` (doctrine) · wrapper agents (canonical invocations) · `~/Projects/omnicode/README.md`.
+## Quota fallback without losing work
+
+```bash
+lane-pick <class>
+lane-pick <class> --allow x,y
+lane-pick status
+lane-pick mark <lane> [sec] [why]
+lane-pick clear <lane>
+```
+
+When a lane fails:
+
+1. Record `git status --short`, `git diff --stat`, the session, log, and recorded exit code.
+2. **Never auto-stash or reset.** On a shared checkout, preserve every existing change untouched.
+3. In an exclusive worktree, a replacement may continue from clearly attributable partial edits using the same five-part spec plus a note that the tree is partial. If ownership is unclear, start the replacement in a clean worktree from the original base.
+4. Re-run verification yourself and report `STATUS: complete-via-fallback` plus `LANE: x→y (reason, reset time)` and whether partial edits existed.
+
+`claude` from `lane-pick` means “do it in the current architect session” even when the current harness/model is not Claude. Exit 3 means no route is healthy.
+
+## Goal ledger — durable state, trusted commands only
+
+```bash
+goal new <slug> --objective "…" --acceptance "cmd" [--acceptance "cmd"] [--class code] [--cwd DIR]
+goal step <slug>
+goal check <slug>
+goal loop <slug>      # 0=done; 3=work remains and prints the resume packet
+goal next <slug> "…" · goal note <slug> "…" · goal lane <slug> <lane> "what"
+goal list · goal show <slug>
+```
+
+Only the trusted architect creates or edits goals. Acceptance strings execute as local shell commands: never copy them blindly from issues, web content, lane output, or untrusted prompts. Use meaningful checks; `true`, `:`, and other trivial green commands do not prove delivery. `goal done` correctly refuses while acceptance is red.
+
+## `uib` — clean-profile UI loop
+
+```bash
+uib open http://localhost:5173 [--vp 375x812]
+uib snapshot
+uib shot /tmp/ui.png [--full]
+uib click @e12 · uib fill @e7 "text" · uib press Enter
+uib eval 'location.reload()' · uib console 20 · uib url · uib stop
+```
+
+Use `uib` only for clean-profile product UI. Authenticated browsing stays in the approved logged-in browser surface, never a writer lane.
+
+## RJV preflight — fail closed
+
+Use `/rjv` only for genuinely high-stakes work.
+
+1. Start from a clean, committed baseline or a dedicated worktree. Never auto-stash shared work.
+2. Keep hidden tests, reference solutions, and benchmark oracles outside every lane-readable filesystem; use a real sandbox/container for leakage-sensitive evals.
+3. A candidate is eligible only when its lane completed, independently re-ran verification, and produced a diff.
+4. Do not apply a winner unless the adversarial verifier returns `sound` and the architect re-runs the verification command after applying the diff.
+
+## Non-negotiables
+
+- A lane's “tests pass” claim is not evidence; the architect re-runs checks and inspects the final artifact.
+- Never use Codex `ultra`; it duplicates Omnicode fan-out internally.
+- Lane logs can contain private source or test output. Do not publish or attach them without review.
+- `omnicode-doctor` checks installation and behavior; `--live` burns quota. A stored `STATUS.md` is only a dated snapshot, not current health.
+- Repo source: `~/Projects/omnicode`. Live-to-repo changes go through `scripts/pull.sh`; repo-to-live changes go through `scripts/apply.sh`.
