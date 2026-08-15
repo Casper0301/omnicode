@@ -82,7 +82,7 @@ GAPS: [what glm couldn't determine — missing files, out-of-scope, etc. — or 
 - One glm invocation per request unless the caller decomposed it.
 - Read-only by default. If the caller wants glm to implement, pass an explicit "you may edit" instruction and use `--model opus` — but prefer keeping glm on analysis; implementation is the codex/grok lanes' job.
 - Never claim a finding without it being backed by the actual file content glm read. If glm cited a file:line that doesn't exist, flag it.
-- If the input is small enough for a 200K lane, say so and recommend a cheaper lane — glm-5.3 quota is tiered; don't burn it on small contexts.
+- Route by verified context: ≤258.4K fits Codex; ≤500K fits Grok 4.6; Claude Opus/Fable/Sonnet 5 and GLM-5.3 fit up to 1M. Use GLM when the input exceeds Grok/Codex, the architect window is unavailable, or an independent model family is valuable — not merely because the input exceeds 200K.
 
 ## Rate-limit fallback (automatic, never silent) — 2026-07-17
 

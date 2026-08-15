@@ -1,7 +1,7 @@
 ---
 name: grok-implementer
 description: >-
-  Default implementation lane for PURE CODING tasks, running Grok via xAI's Grok CLI (`grok-4.5` model, headless, grok.com subscription auth). Runs ONLY on a complete five-part spec (Objective/Files/Interfaces/Constraints/Verification) — grok freestyles where the spec is silent (proven 2026-07-09 eval), so this lane bounces incomplete specs back as STATUS: spec-incomplete instead of letting grok improvise. Correctness-critical work goes to codex instead. The spec fully determines the outcome and Grok does the typing at a fraction of the architect's token cost, from a different model family than the session. Receives the five-part spec; drives grok to write the code; returns a structured report with verification evidence. Requires the `grok` CLI installed and authenticated — reports a structured error if it is missing, never silently substitutes itself.
+  Default implementation lane for PURE CODING tasks, running Grok 4.6 via xAI's Grok CLI (500K context, high reasoning, grok.com subscription auth). Runs ONLY on a complete five-part spec (Objective/Files/Interfaces/Constraints/Verification) — grok freestyles where the spec is silent, so this lane bounces incomplete specs back as STATUS: spec-incomplete instead of letting grok improvise. Correctness-critical work goes to codex instead. Receives the five-part spec; drives grok to write the code; returns a structured report with verification evidence. Requires `grok-4.6` in the authenticated CLI catalog — reports a structured error if unavailable, never silently substitutes another model.
 model: sonnet
 tools: Bash, Read, Grep, Glob
 ---
@@ -68,17 +68,20 @@ SPEC_EOF
 # Portable timeout via perl alarm (no coreutils needed — always caps on macOS/Linux)
 
 perl -e 'alarm shift; exec @ARGV' 600 grok --prompt-file "$SPEC" \
-  -m grok-4.5 \
+  -m grok-4.6 \
+  --reasoning-effort high \
   --permission-mode acceptEdits \
   --output-format plain \
   --cwd "$(pwd)" \
+  --no-plan --max-turns 120 \
+  --no-memory --no-subagents --disable-web-search \
   > /tmp/grok-final-$$.txt 2>&1
 FINAL=/tmp/grok-final-$$.txt
 ```
 
-Flag discipline (non-negotiable): `--prompt-file "$SPEC"` (headless single-task run; no quoting hazards). `-m grok-4.5` (the verified subscription model reported by `grok models` on 2026-07-15). `--permission-mode acceptEdits` (edits files without prompting but no blanket command approval; never `bypassPermissions` — you re-run verification yourself). `--cwd "$(pwd)"` (deterministic root). `--output-format plain` (final message to stdout, captured). `perl -e 'alarm shift; exec @ARGV' 600` (10-min wall clock; on timeout report `STATUS: timeout` with whatever landed).
+Flag discipline (non-negotiable): `-m grok-4.6` pins the latest authenticated frontier model (500K context). `--reasoning-effort high` is the quality/latency optimum for the routine code lane; RJV alone raises Grok to `xhigh`. `--no-plan` prevents a headless run from stopping after planning, while `--max-turns 120` leaves the wall-clock alarm as the real runaway guard. `--no-memory --no-subagents --disable-web-search` keeps this bounded coding lane self-contained. `--permission-mode acceptEdits` is smoke-verified on Grok CLI 1.0.4 and preserves command approval boundaries; never use `bypassPermissions`. The host re-runs verification independently.
 
-If `-m grok-4.5` is rejected after an update, retry once WITHOUT `-m` (use the authenticated CLI default) and note the slug change in the report.
+If `grok-4.6` is absent or rejected, return `STATUS: unavailable` and let `lane-pick` choose another family. Never omit `-m` or silently fall back to an older Grok model.
 
 3. **Verify independently.** Read the diff (`git diff` / `git status`), run the spec's verification command yourself, and read grok's final message from `"$FINAL"`. Grok's claim of success is not evidence; your re-run is. (`acceptEdits` may have blocked grok from running the verification itself — your re-run covers that by design.)
 

@@ -14,13 +14,26 @@ The current session is the architect and final authority. Subscription-backed ex
 | Well-specified code | `lane-pick code` (normally grok) |
 | Correctness-critical code/review | `lane-pick correctness` (normally codex) |
 | LangGraph/LangChain/deepagents code | `lane-pick langchain` (normally dcode; shares codex quota) |
-| Context beyond normal windows | `lane-pick longcontext` (glm) |
+| Long-context/bulk analysis | `lane-pick longcontext` (GLM-5.3 1M; Grok 4.6 500K fallback) |
 | Research or adversarial review | `lane-pick research` / `lane-pick review` |
 | Architecture/API/migration/refactor | architect session; consult `fable-advisor` when available |
 | UI implementation/review | architect plus `uib`; route code by risk |
 | High-stakes implementation | `/rjv` only after the RJV preflight below |
 
-**No Gemini/Antigravity lane.** Current policy routes non-Anthropic cross-checks to grok first, codex second.
+**No Gemini/Antigravity lane.** Current policy routes non-Anthropic cross-checks to Grok first, Codex second.
+
+## Current model policy
+
+| Role | Model | Context | Reasoning |
+|---|---|---:|---|
+| Wrapper supervisor | latest `sonnet` alias → Sonnet 5 | 1M | adaptive/high default |
+| Architecture advisor | latest `fable` alias → Fable 5 | 1M | adaptive |
+| Correctness / dcode | `gpt-5.6-sol` | 272K subscription cap (258.4K effective) | `max`; never `ultra` |
+| Routine code / review | `grok-4.6` | 500K | `high` routine; `xhigh` only in RJV |
+| Long-context / verifier | `glm --model opus` → `glm-5.3[1m]` | 1M | launcher-enforced `max` |
+| RJV Claude implementer / judge | Opus 5 / Fable 5 | 1M each | adaptive |
+
+The machine-readable source is `~/Projects/omnicode/config/models.json`. Claude aliases intentionally follow the latest tier. Grok and Codex use explicit authenticated model IDs. Input guidance: up to 258K all lanes fit; 258K–500K use Grok/Claude/GLM; 500K–1M use Claude or GLM; above 1M chunk the task.
 
 Every implementation delegation needs five explicit parts: **Objective · Files · Interfaces · Constraints · Verification command**. If any part is unclear, finish the decision in the architect session instead of delegating ambiguity.
 
@@ -57,8 +70,9 @@ Example:
 SPEC=$(mktemp -t omnicode-spec.XXXXXX)
 # Write the complete five-part spec to $SPEC.
 lanes start grok -- perl -e 'alarm shift; exec @ARGV' 600 \
-  grok --prompt-file "$SPEC" -m grok-4.5 \
-  --permission-mode acceptEdits --output-format plain --cwd "$(pwd)"
+  grok --prompt-file "$SPEC" -m grok-4.6 --reasoning-effort high \
+  --permission-mode acceptEdits --output-format plain --cwd "$(pwd)" \
+  --no-plan --max-turns 120 --no-memory --no-subagents --disable-web-search
 ```
 
 Never put shell redirects inside the wrapped command. `- < "$SPEC"` makes detached Codex wait forever; `> file` can swallow `SESSION=`. Pass prompts by flag or positional argument and read the returned `LOG`. A finished session is not evidence by itself: inspect `lanes result`, the log, the diff, and re-run verification.
@@ -119,6 +133,7 @@ Use `/rjv` only for genuinely high-stakes work.
 ## Non-negotiables
 
 - A lane's “tests pass” claim is not evidence; the architect re-runs checks and inspects the final artifact.
+- `config/models.json` is the model/context/effort source of truth; `omnicode-doctor` rejects stale pins.
 - Never use Codex `ultra`; it duplicates Omnicode fan-out internally.
 - Lane logs can contain private source or test output. Do not publish or attach them without review.
 - `omnicode-doctor` checks installation and behavior; `--live` burns quota. A stored `STATUS.md` is only a dated snapshot, not current health.

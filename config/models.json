@@ -1,0 +1,66 @@
+{
+  "_doc": "Omnicode model policy. Explicit vendor IDs are verified against authenticated local catalogs; Claude aliases intentionally track the latest model in each tier.",
+  "verified_at": "2026-08-16",
+  "sources": [
+    "https://platform.claude.com/docs/en/about-claude/models/overview",
+    "https://developers.openai.com/codex/models",
+    "https://docs.x.ai/developers/models/grok-4.6",
+    "https://docs.x.ai/developers/model-capabilities/text/reasoning",
+    "https://docs.z.ai/guides/llm/glm-5.3",
+    "https://docs.z.ai/guides/capabilities/thinking"
+  ],
+  "claude": {
+    "wrapper_supervisor": {
+      "alias": "sonnet",
+      "resolved": "claude-sonnet-5",
+      "context_window": 1000000,
+      "reasoning": "adaptive, default high"
+    },
+    "architecture_advisor": {
+      "alias": "fable",
+      "resolved": "claude-fable-5",
+      "context_window": 1000000,
+      "reasoning": "adaptive"
+    },
+    "rjv_implementer": {
+      "alias": "opus",
+      "resolved": "claude-opus-5",
+      "context_window": 1000000,
+      "reasoning": "adaptive, default high"
+    },
+    "rjv_judge": {
+      "alias": "fable",
+      "resolved": "claude-fable-5",
+      "context_window": 1000000,
+      "reasoning": "adaptive"
+    }
+  },
+  "codex": {
+    "model": "gpt-5.6-sol",
+    "context_window": 272000,
+    "effective_context_percent": 95,
+    "effective_context_window": 258400,
+    "reasoning_effort": "max",
+    "forbidden_effort": "ultra",
+    "note": "The ChatGPT-authenticated Codex catalog advertises 272K even though the API model supports a larger window; Omnicode never switches to API-key billing."
+  },
+  "grok": {
+    "model": "grok-4.6",
+    "context_window": 500000,
+    "routine_reasoning_effort": "high",
+    "rjv_reasoning_effort": "xhigh"
+  },
+  "glm": {
+    "launcher_alias": "opus",
+    "resolved": "glm-5.3[1m]",
+    "context_window": 1000000,
+    "reasoning_effort": "max"
+  },
+  "dcode": {
+    "model": "openai_codex:gpt-5.6-sol",
+    "context_window": 272000,
+    "effective_context_window": 258400,
+    "reasoning_effort": "max",
+    "quota_group": "openai"
+  }
+}

@@ -70,6 +70,16 @@ g=d.get('quota_groups',{}).get('openai',[])
 assert 'codex' in g and 'dcode' in g" 2>/dev/null; then
   pass "quota group openai contains codex+dcode"
 else fail "quota_groups.openai must contain codex and dcode"; fi
+if python3 -c "
+import json; m=json.load(open('$H/.claude/omnicode/models.json'))
+assert m['claude']['architecture_advisor']['resolved']=='claude-fable-5'
+assert m['claude']['rjv_implementer']['resolved']=='claude-opus-5'
+assert m['codex']['model']=='gpt-5.6-sol' and m['codex']['context_window']==272000 and m['codex']['reasoning_effort']=='max'
+assert m['grok']['model']=='grok-4.6' and m['grok']['context_window']==500000 and m['grok']['routine_reasoning_effort']=='high' and m['grok']['rjv_reasoning_effort']=='xhigh'
+assert m['glm']['resolved']=='glm-5.3[1m]' and m['glm']['context_window']==1000000 and m['glm']['reasoning_effort']=='max'
+assert m['dcode']['model']=='openai_codex:gpt-5.6-sol'" 2>/dev/null; then
+  pass "models.json matches the latest model/context/effort policy"
+else fail "models.json missing, invalid, or stale"; fi
 for c in code correctness langchain longcontext research review ui architecture; do
   r=$(lane-pick "$c" 2>/dev/null); rc=$?
   if [ $rc -eq 0 ]; then pass "class $c -> $r"
@@ -156,6 +166,14 @@ else pass "retired Gemini/Antigravity wrappers absent"; fi
 if grep -qE -- '^[[:space:]]*- < "\$SPEC"[[:space:]]*\\?$' "$H/.claude/agents/codex-implementer.md" 2>/dev/null; then
   fail "codex-implementer still documents the stdin-redirect invocation (hangs under lanes)"
 else pass "codex-implementer stdin bug absent"; fi
+if grep -q 'grok-4.6' "$H/.claude/agents/grok-implementer.md" 2>/dev/null \
+   && grep -q -- '--reasoning-effort high' "$H/.claude/agents/grok-implementer.md" 2>/dev/null \
+   && ! grep -qE -- '-m[[:space:]]+grok-4\.5' "$H/.claude/agents/grok-implementer.md" 2>/dev/null; then
+  pass "Grok wrapper pins 4.6 with high reasoning"
+else fail "Grok wrapper model/effort pin is stale"; fi
+if grep -q '^model: fable$' "$H/.claude/agents/fable-advisor.md" 2>/dev/null; then
+  pass "Fable advisor is pinned to the latest Fable alias"
+else fail "fable-advisor does not actually select Fable"; fi
 
 # ---------------------------------------------------------------- skills / MCP / workflows
 sect "skills, MCP, workflows"
@@ -166,16 +184,51 @@ else pass "race-and-judge Codex prompt is positional"; fi
 if grep -qiE 'antigravity|gemini|\bagy\b' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
   fail "race-and-judge still routes a retired Gemini/Antigravity lane"
 else pass "race-and-judge has no Gemini/Antigravity lane"; fi
+if grep -q 'grok-4.6' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
+   && grep -q -- '--reasoning-effort xhigh' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
+   && grep -q "model: 'fable'" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
+  pass "RJV uses Grok 4.6 xhigh and a Fable judge"
+else fail "RJV model/effort policy is stale"; fi
 if grep -qE 'stash or reset them|git stash|reset --hard|stash -u' "$H/.agents/skills/omnicode/SKILL.md" 2>/dev/null; then
   fail "omnicode skill contains destructive fallback cleanup guidance"
 else pass "omnicode skill bans destructive fallback cleanup"; fi
+if [ -L "$H/.agents/skills" ] \
+   && [ "$(realpath "$H/.agents/skills" 2>/dev/null)" = "$(realpath "$H/.claude/skills" 2>/dev/null)" ]; then
+  pass "shared agent skills root safely points to Claude skills"
+else fail "~/.agents/skills must remain a symlink to ~/.claude/skills"; fi
 if [ "$(readlink "$H/.agents/skills/omnicode" 2>/dev/null)" = "$H/Projects/omnicode/skill" ] \
    && [ "$(readlink "$H/.claude/skills/omnicode" 2>/dev/null)" = "$H/Projects/omnicode/skill" ] \
    && [ -f "$H/.agents/skills/omnicode/SKILL.md" ] \
    && [ -f "$H/.claude/skills/omnicode/SKILL.md" ]; then
   pass "omnicode skill symlinked into shared + Claude roots"
 else fail "omnicode skill symlink missing/wrong — run scripts/apply.sh"; fi
-[ -d "$H/.claude/skills/rjv" ] && pass "rjv skill present" || warn "rjv skill dir missing"
+if [ -f "$H/.claude/skills/rjv/SKILL.md" ]; then
+  pass "rjv skill present"
+  if grep -qiE '\bagy\b|grok 4\.5|gemini 3\.1|antigravity-implementer' "$H/.claude/skills/rjv/SKILL.md"; then
+    fail "rjv skill advertises a retired/stale model"
+  elif grep -q 'Grok 4.6' "$H/.claude/skills/rjv/SKILL.md" \
+       && grep -q 'Fable 5' "$H/.claude/skills/rjv/SKILL.md"; then
+    pass "rjv skill matches the current model policy"
+  else fail "rjv skill is missing current Grok/Fable routing"; fi
+else warn "rjv skill missing"; fi
+if grok models 2>/dev/null | grep -q 'Default model: grok-4.6'; then
+  pass "authenticated Grok catalog defaults to 4.6"
+else fail "authenticated Grok catalog does not default to 4.6"; fi
+if grep -q 'default = "grok-4.6"' "$H/.grok/config.toml" 2>/dev/null \
+   && grep -q 'fork_secondary_model = "grok-4.6"' "$H/.grok/config.toml" 2>/dev/null; then
+  pass "Grok local defaults are pinned to 4.6"
+else fail "~/.grok/config.toml still pins an older Grok model"; fi
+if grep -q 'ANTHROPIC_DEFAULT_OPUS_MODEL="glm-5.3\[1m\]"' "$H/.local/bin/glm" 2>/dev/null \
+   && grep -q 'MAX_THINKING_TOKENS="64000"' "$H/.local/bin/glm" 2>/dev/null; then
+  pass "GLM launcher maps the 1M flagship and max reasoning budget"
+else fail "GLM launcher model/context/reasoning mapping is stale"; fi
+if python3 -c "
+import json,os
+p=os.path.expanduser('~/.codex/models_cache.json'); m=json.load(open(p))['models'][0]
+assert m['slug']=='gpt-5.6-sol' and m['max_context_window']==272000
+assert any(x['effort']=='max' for x in m['supported_reasoning_levels'])" 2>/dev/null; then
+  pass "authenticated Codex catalog confirms GPT-5.6-Sol / 272K / max"
+else warn "Codex model cache does not confirm the pinned subscription model"; fi
 if python3 -c "
 import json;d=json.load(open('$H/.claude.json'))
 assert 'agent-harnesses' in d.get('mcpServers',{})" 2>/dev/null; then
@@ -234,7 +287,7 @@ if [ "$LIVE" = 1 ]; then
   sect "LIVE end-to-end probe (burns a little quota)"
   L=$(lane-pick code 2>/dev/null || true)
   case "$L" in
-    grok)  CMD=(grok -p "Reply with exactly: OMNICODE-LIVE-OK" -m grok-4.5 --output-format plain);;
+    grok)  CMD=(grok -p "Reply with exactly: OMNICODE-LIVE-OK" -m grok-4.6 --reasoning-effort low --output-format plain);;
     glm)   CMD=(glm --model sonnet -p "Reply with exactly: OMNICODE-LIVE-OK");;
     codex) CMD=(codex exec --ignore-user-config -m gpt-5.6-sol -c model_reasoning_effort=low -s read-only --skip-git-repo-check "Reply with exactly: OMNICODE-LIVE-OK");;
     *)     CMD=();;

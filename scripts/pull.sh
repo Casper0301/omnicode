@@ -27,6 +27,8 @@ cp "$H/.uib/package.json"  "$REPO/uib/package.json"
 
 # Config
 cp "$H/.claude/omnicode/ladders.json" "$REPO/config/ladders.json"
+[ -f "$H/.claude/omnicode/models.json" ] && \
+  cp "$H/.claude/omnicode/models.json" "$REPO/config/models.json"
 
 # Active lane wrapper agents. Gemini/Antigravity lanes are retired by policy.
 for a in fable-advisor codex-implementer grok-implementer glm-longcontext \
@@ -36,8 +38,10 @@ done
 rm -f "$REPO/agents/antigravity-implementer.md" \
       "$REPO/agents/gemini-reviewer.md"
 
-# Workflows
+# Workflow + companion skill
 cp "$H/.claude/workflows/race-and-judge.mjs" "$REPO/workflows/race-and-judge.mjs"
+[ -f "$H/.claude/skills/rjv/SKILL.md" ] && \
+  cp "$H/.claude/skills/rjv/SKILL.md" "$REPO/skills/rjv/SKILL.md"
 
 # Doctrine — VERSIONED COPY ONLY. Source of truth stays ~/.ai-memory (memory system);
 # apply.sh deliberately never writes this back.

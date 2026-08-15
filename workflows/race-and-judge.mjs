@@ -1,15 +1,15 @@
 // omnicode (race-and-judge.mjs) — high-stakes race across four model families.
 // Invoke from a clean GIT REPO cwd:
 //   Workflow({ scriptPath: '~/.claude/workflows/race-and-judge.mjs', args: { spec: '<five-part spec>', verifyCmd: '<trusted command>' } })
-// Race: Claude Opus + Codex/GPT-5.6-Sol + Grok. Judge: Opus-tier. Verify: GLM-5.3.
+// Race: Claude Opus 5 + GPT-5.6-Sol max + Grok 4.6 xhigh. Judge: Fable 5. Verify: GLM-5.3 max.
 // The architect applies a winner only when verification is sound, then re-runs verifyCmd.
 
 export const meta = {
   name: 'omnicode',
-  description: 'Race Claude Opus, Codex, and Grok in isolated worktrees; Opus judges; GLM adversarially verifies. Fails closed before apply.',
+  description: 'Race Opus 5, GPT-5.6-Sol max, and Grok 4.6 xhigh in isolated worktrees; Fable 5 judges; GLM-5.3 max verifies.',
   phases: [
     { title: 'Race', detail: '3 implementer lanes in parallel (Claude/GPT/Grok), each in its own git worktree' },
-    { title: 'Judge', detail: 'Opus-tier model reads every eligible diff and picks one' },
+    { title: 'Judge', detail: 'Fable 5 reads every eligible diff and picks one' },
     { title: 'Verify', detail: 'GLM-5.3 adversarially verifies the winner before any apply instruction' },
   ],
 }
@@ -53,7 +53,7 @@ const lanes = await parallel([
     { label: 'codex-lane [GPT-5.6-Sol]', phase: 'Race', agentType: 'codex-implementer', isolation: 'worktree', schema: LANE_SCHEMA }
   ),
   () => agent(
-    `You are the grok-implementer lane in a high-stakes race. Follow the current agent pattern and drive Grok with \`grok --prompt-file "$SPEC" -m grok-4.5 --permission-mode acceptEdits --output-format plain --cwd "$(pwd)"\`. Re-run the trusted verification command yourself. Only after verification, capture every change with \`${captureDiff(diffPaths.grok)}\`. Return lane="grok" and diffPath=${diffPaths.grok}.\n\nVERIFICATION COMMAND: ${verifyCmd}\n\nSPEC:\n${spec}`,
+    `You are the grok-implementer lane in a high-stakes race. Drive Grok 4.6 at its maximum single-model reasoning depth with \`grok --prompt-file "$SPEC" -m grok-4.6 --reasoning-effort xhigh --permission-mode acceptEdits --output-format plain --cwd "$(pwd)" --no-plan --max-turns 120 --no-memory --no-subagents --disable-web-search\`. Re-run the trusted verification command yourself. Only after verification, capture every change with \`${captureDiff(diffPaths.grok)}\`. Return lane="grok" and diffPath=${diffPaths.grok}.\n\nVERIFICATION COMMAND: ${verifyCmd}\n\nSPEC:\n${spec}`,
     { label: 'grok-lane [Grok]', phase: 'Race', agentType: 'grok-implementer', isolation: 'worktree', schema: LANE_SCHEMA }
   ),
 ])
@@ -85,7 +85,7 @@ const JUDGE_SCHEMA = {
 }
 const rawJudge = await agent(
   `You are the judge. Read every eligible diffPath and compare it against the five-part spec. Pick exactly one eligible lane, or winner="none" if all are flawed. Do not trust summaries or verification claims instead of reading diffs.\n\nSPEC:\n${spec}\n\nELIGIBLE LANE REPORTS:\n${JSON.stringify(eligible, null, 2)}`,
-  { label: 'judge [Opus]', phase: 'Judge', model: 'opus', schema: JUDGE_SCHEMA }
+  { label: 'judge [Fable 5]', phase: 'Judge', model: 'fable', schema: JUDGE_SCHEMA }
 )
 
 // Never trust a model-returned path. Resolve the path from the known eligible lane record.

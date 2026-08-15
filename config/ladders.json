@@ -1,15 +1,15 @@
 {
-  "_doc": "Omnicode fallback ladders — first healthy configured lane wins. Lanes sharing one subscription quota are grouped in quota_groups.",
+  "_doc": "Omnicode fallback ladders — first healthy configured lane wins. Model IDs, context windows, and effort policy live in models.json.",
   "quota_groups": {
     "openai": ["codex", "dcode"]
   },
   "classes": {
     "code": ["grok", "glm", "codex", "claude"],
     "correctness": ["codex", "glm", "grok", "claude"],
-    "langchain": ["dcode", "glm", "claude"],
-    "longcontext": ["glm", "claude"],
-    "research": ["glm", "grok", "codex", "claude"],
-    "review": ["glm", "grok", "codex", "claude"],
+    "langchain": ["dcode", "grok", "glm", "claude"],
+    "longcontext": ["glm", "grok", "claude"],
+    "research": ["grok", "glm", "codex", "claude"],
+    "review": ["grok", "glm", "codex", "claude"],
     "ui": ["claude", "glm", "codex", "grok"],
     "architecture": ["claude"]
   }

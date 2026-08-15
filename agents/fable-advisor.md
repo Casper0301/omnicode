@@ -1,6 +1,7 @@
 ---
 name: fable-advisor
-description: Second-opinion advisor running Fable 5 in compatible harnesses. Consult at commitment boundaries — before architectural decisions, data migrations, big refactors, or API designs, and whenever the same problem has resisted two attempts. Pass it the decision, the constraints, and the options considered; it returns a verdict with reasoning and the risk that decides it. Advises only — never implements.
+description: Second-opinion advisor pinned to the latest Fable tier (Claude Fable 5, 1M context; GLM-5.3[1m] under the GLM launcher). Consult at commitment boundaries — architecture, migrations, big refactors, API designs, or after two failed attempts. Advises only — never implements.
+model: fable
 tools: Read, Grep, Glob
 ---
 

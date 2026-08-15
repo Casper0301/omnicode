@@ -113,6 +113,45 @@ class LanePickAllowlistTest(unittest.TestCase):
         self.assertIn("codex    AVAILABLE (auth not probed)", result.stdout)
 
 
+class ModelPolicyTest(unittest.TestCase):
+    def test_latest_models_contexts_and_efforts_are_pinned(self):
+        models = json.loads((ROOT / "config" / "models.json").read_text(encoding="utf-8"))
+        self.assertEqual(models["claude"]["architecture_advisor"]["resolved"], "claude-fable-5")
+        self.assertEqual(models["claude"]["rjv_implementer"]["context_window"], 1_000_000)
+        self.assertEqual(models["codex"]["model"], "gpt-5.6-sol")
+        self.assertEqual(models["codex"]["context_window"], 272_000)
+        self.assertEqual(models["codex"]["reasoning_effort"], "max")
+        self.assertEqual(models["grok"]["model"], "grok-4.6")
+        self.assertEqual(models["grok"]["context_window"], 500_000)
+        self.assertEqual(models["grok"]["routine_reasoning_effort"], "high")
+        self.assertEqual(models["grok"]["rjv_reasoning_effort"], "xhigh")
+        self.assertEqual(models["glm"]["resolved"], "glm-5.3[1m]")
+        self.assertEqual(models["glm"]["reasoning_effort"], "max")
+
+    def test_active_surfaces_match_model_policy(self):
+        grok_agent = (ROOT / "agents" / "grok-implementer.md").read_text(encoding="utf-8")
+        fable_agent = (ROOT / "agents" / "fable-advisor.md").read_text(encoding="utf-8")
+        workflow = (ROOT / "workflows" / "race-and-judge.mjs").read_text(encoding="utf-8")
+        skill = (ROOT / "skill" / "SKILL.md").read_text(encoding="utf-8")
+        rjv_skill = (ROOT / "skills" / "rjv" / "SKILL.md").read_text(encoding="utf-8")
+        for content in (grok_agent, workflow, skill, rjv_skill):
+            self.assertNotIn("grok-4.5", content)
+        self.assertIn("-m grok-4.6", grok_agent)
+        self.assertIn("--reasoning-effort high", grok_agent)
+        self.assertIn("model: fable", fable_agent)
+        self.assertIn("-m grok-4.6 --reasoning-effort xhigh", workflow)
+        self.assertIn("model: 'fable'", workflow)
+        self.assertIn("Grok 4.6", rjv_skill)
+        self.assertIn("Fable 5", rjv_skill)
+
+    def test_ladders_use_latest_grok_as_first_cross_vendor_review(self):
+        ladders = json.loads((ROOT / "config" / "ladders.json").read_text(encoding="utf-8"))
+        self.assertEqual(ladders["classes"]["research"][0], "grok")
+        self.assertEqual(ladders["classes"]["review"][0], "grok")
+        self.assertEqual(ladders["classes"]["longcontext"][:2], ["glm", "grok"])
+        self.assertEqual(ladders["classes"]["langchain"][:2], ["dcode", "grok"])
+
+
 @unittest.skipUnless(shutil.which("tmux"), "tmux is required for lanes integration tests")
 class LanesExitPropagationTest(unittest.TestCase):
     def setUp(self):
@@ -209,8 +248,9 @@ class ApplySafetyTest(unittest.TestCase):
     def _assert_apply_refuses_collision(self, home, root, collision):
         (home / ".local" / "bin").mkdir(parents=True)
         (home / ".uib" / "node_modules" / "playwright").mkdir(parents=True)
-        (home / ".agents" / "skills").mkdir(parents=True)
         (home / ".claude" / "skills").mkdir(parents=True)
+        (home / ".agents").mkdir(parents=True)
+        (home / ".agents" / "skills").symlink_to(home / ".claude" / "skills", target_is_directory=True)
         (home / "Library" / "LaunchAgents").mkdir(parents=True)
         target = home / root / "skills" / "omnicode"
         if collision == "file":
@@ -238,13 +278,32 @@ class ApplySafetyTest(unittest.TestCase):
             self.assertEqual((target / "keep-me").read_text(encoding="utf-8"), "keep me\n")
         self.assertIn("refus", result.stderr.lower())
 
+    def test_apply_refuses_a_real_agents_skills_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            (home / ".agents" / "skills").mkdir(parents=True)
+            (home / ".claude" / "skills").mkdir(parents=True)
+            marker = home / ".agents" / "skills" / "keep-me"
+            marker.write_text("keep me\n", encoding="utf-8")
+            result = subprocess.run(
+                [str(ROOT / "scripts" / "apply.sh")],
+                env={**os.environ, "HOME": str(home)},
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
+            self.assertIn("unsafe skills root", result.stderr)
+
     def test_apply_installs_goal_executable(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             (home / ".local" / "bin").mkdir(parents=True)
             (home / ".uib" / "node_modules" / "playwright").mkdir(parents=True)
-            (home / ".agents" / "skills").mkdir(parents=True)
             (home / ".claude" / "skills").mkdir(parents=True)
+            (home / ".agents").mkdir(parents=True)
             (home / "Library" / "LaunchAgents").mkdir(parents=True)
             launchctl = home / ".local" / "bin" / "launchctl"
             launchctl.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -264,9 +323,21 @@ class ApplySafetyTest(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((home / ".agents" / "skills").is_symlink())
+            self.assertEqual(
+                (home / ".agents" / "skills").resolve(),
+                (home / ".claude" / "skills").resolve(),
+            )
             goal = home / ".local" / "bin" / "goal"
             self.assertTrue(goal.is_file())
             self.assertTrue(os.access(goal, os.X_OK))
+            installed_models = home / ".claude" / "omnicode" / "models.json"
+            self.assertEqual(
+                json.loads(installed_models.read_text(encoding="utf-8"))["grok"]["model"],
+                "grok-4.6",
+            )
+            installed_rjv = home / ".claude" / "skills" / "rjv" / "SKILL.md"
+            self.assertIn("Grok 4.6", installed_rjv.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

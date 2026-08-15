@@ -1,4 +1,4 @@
-omnicode-doctor — 2026-08-16 00:32 — host Caspers-MacBook-Pro
+omnicode-doctor — 2026-08-16 01:03 — host Caspers-MacBook-Pro
 
 == core binaries ==
 [PASS] tmux on PATH
@@ -20,10 +20,11 @@ omnicode-doctor — 2026-08-16 00:32 — host Caspers-MacBook-Pro
 [PASS] lane-pick executable
 [PASS] ladders.json valid JSON
 [PASS] quota group openai contains codex+dcode
+[PASS] models.json matches the latest model/context/effort policy
 [PASS] class code -> grok
 [PASS] class correctness -> codex
 [PASS] class langchain -> dcode
-[PASS] class longcontext -> claude
+[PASS] class longcontext -> glm
 [PASS] class research -> grok
 [PASS] class review -> grok
 [PASS] class ui -> claude
@@ -61,14 +62,23 @@ omnicode-doctor — 2026-08-16 00:32 — host Caspers-MacBook-Pro
 [PASS] dcode-implementer carries fallback protocol
 [PASS] retired Gemini/Antigravity wrappers absent
 [PASS] codex-implementer stdin bug absent
+[PASS] Grok wrapper pins 4.6 with high reasoning
+[PASS] Fable advisor is pinned to the latest Fable alias
 
 == skills, MCP, workflows ==
 [PASS] race-and-judge workflow present
 [PASS] race-and-judge Codex prompt is positional
 [PASS] race-and-judge has no Gemini/Antigravity lane
+[PASS] RJV uses Grok 4.6 xhigh and a Fable judge
 [PASS] omnicode skill bans destructive fallback cleanup
+[PASS] shared agent skills root safely points to Claude skills
 [PASS] omnicode skill symlinked into shared + Claude roots
 [PASS] rjv skill present
+[PASS] rjv skill matches the current model policy
+[PASS] authenticated Grok catalog defaults to 4.6
+[PASS] Grok local defaults are pinned to 4.6
+[PASS] GLM launcher maps the 1M flagship and max reasoning budget
+[PASS] authenticated Codex catalog confirms GPT-5.6-Sol / 272K / max
 [PASS] agent-harnesses MCP configured
 
 == goal ledger (durable cross-harness goals) ==
@@ -82,9 +92,11 @@ omnicode-doctor — 2026-08-16 00:32 — host Caspers-MacBook-Pro
 
 == state hygiene ==
 [PASS] health.json valid
-glm      COOLDOWN until Sun 00:40 — quota (usage (?:limit|cap))
 [PASS] ~/.lanes size OK (46MB)
 [PASS] no stale lane sessions
 
+== LIVE end-to-end probe (burns a little quota) ==
+[PASS] live prompt through grok lane returned correctly
+
 == summary ==
-PASS=62 WARN=0 FAIL=0
+PASS=73 WARN=0 FAIL=0
