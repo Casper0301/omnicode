@@ -1,4 +1,4 @@
-omnicode-doctor — 2026-08-16 01:03 — host Caspers-MacBook-Pro
+omnicode-doctor — 2026-08-16 08:45 — host Caspers-MacBook-Pro
 
 == core binaries ==
 [PASS] tmux on PATH
@@ -85,7 +85,7 @@ omnicode-doctor — 2026-08-16 01:03 — host Caspers-MacBook-Pro
 [PASS] goal CLI executable
 [PASS] goal round-trip (new->loop->DONE on green acceptance) works
 [PASS] all goal files parse
-       open goals: 3
+       open goals: 2
 
 == repo self-tests ==
 [PASS] omnicode unit tests pass
@@ -95,8 +95,5 @@ omnicode-doctor — 2026-08-16 01:03 — host Caspers-MacBook-Pro
 [PASS] ~/.lanes size OK (46MB)
 [PASS] no stale lane sessions
 
-== LIVE end-to-end probe (burns a little quota) ==
-[PASS] live prompt through grok lane returned correctly
-
 == summary ==
-PASS=73 WARN=0 FAIL=0
+PASS=72 WARN=0 FAIL=0

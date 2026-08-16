@@ -73,26 +73,28 @@ ENGINE=(-M openai_codex:gpt-5.6-sol --model-params '{"reasoning": {"effort": "ma
 # (~/.local/bin/lanes) so the user can watch or attach live. Returns immediately and
 # prints SESSION=lane-dcode-… and LOG=~/.lanes/….log — note both.
 lanes start dcode -- \
-  perl -e 'alarm shift; exec @ARGV' 660 \
+  perl -e 'alarm shift; exec @ARGV' 960 \
   env -u OPENAI_API_KEY -u OPENAI_BASE_URL LANGSMITH_TRACING=false \
   dcode --no-mcp "${ENGINE[@]}" \
-  -q --timeout 600 \
+  -S all -q --timeout 900 \
   -n "$(cat "$SPEC")"
 
 # Bounded wait: exit 0 = dcode succeeded, exit 142 = still running, any other
-# code = dcode failed. Call wait again only on 142; never sleep-poll. For long
-# specs raise --timeout/alarm and keep waiting in ≤540s slices.
+# code = dcode failed. Call wait again only on 142; never sleep-poll. 900s of
+# native budget = at most two 540s slices; for bigger specs raise
+# --timeout/alarm together and keep waiting in ≤540s slices.
 lanes wait "<SESSION printed above>" 540
 ```
 
 Flag discipline (non-negotiable):
 
 - `env -u OPENAI_API_KEY -u OPENAI_BASE_URL` removes the BirdClaw-only placeholder from headless lanes, so the pay-per-token `openai` provider is never falsely marked configured. `LANGSMITH_TRACING=false` keeps implementation traces out of LangSmith; the lane sends code only to the selected ChatGPT-subscription model.
-- `--no-mcp` is mandatory. Dcode 0.1.56's embedded LangGraph server still raises `BlockingError` while resolving MCP paths; inherited `LANGGRAPH_ALLOW_BLOCKING=true` is ineffective because `langgraph_cli dev` overwrites it from its missing `--allow-blocking` flag. Coding lanes never load personal MCP tools.
-- Plain `dcode` inside `exec` bypasses the interactive zsh wrapper function; the wrapper also defaults to `--no-mcp`, but lanes keep the flag explicit.
+- `-S all` (`--shell-allow-list all`) is mandatory in headless mode. Since ~0.1.4x dcode disables the shell in `-n` runs unless an allow-list is set — every `execute` call is rejected with "Shell commands are not permitted in non-interactive mode", so dcode cannot run `git`, tests, or the verification command and flounders in the read phase (verified on 0.1.56 from `dcode --help` + source; a plausible, unproven contributor to the 2026-07-10 A/B "no writes in 600s" result). `all` = auto-approve any command (YOLO for shell + tools), which is exactly the trust level this lane always had; the spec's Files/Constraints plus your independent re-verification remain the fence. Restrictive lists (`-S pytest,git`) break real verification commands (pipes/`&&` are rejected as dangerous patterns), so do not downgrade.
+- `--no-mcp` stays explicit for lanes by policy (coding lanes never load personal MCP tools). It is no longer a crash workaround: the 0.1.56 `BlockingError: os.readlink` was caused by `~/.deepagents/.mcp.json` being a symlink (removed 2026-08-16); MCP works with regular-file configs.
+- Plain `dcode` inside `exec` resolves through `~/.local/bin/dcode` → `~/.claude/bin/dcode-launcher` (same launcher as the zsh wrapper). The launcher scopes credentials, strips the retired Herdr `--mcp-config ~/.deepagents/dcode-mcp.json` argv, and swaps a Unix-socket stdin (what the Claude Code Bash tool hands children — dcode would otherwise block forever reading it) for `/dev/null`. Under `lanes`/tmux stdin is a TTY, so nothing changes there. Never add `</dev/null` yourself inside the wrapped command (lanes rule: no shell redirects).
 - Engine flags are fixed to `-M openai_codex:gpt-5.6-sol` + `--model-params '{"reasoning": {"effort": "max", "summary": "auto"}}'`. GPT-5.6 also offers `ultra`, but Omnicode's ceiling is `max`; `ultra` launches internal subagents and would duplicate Omnicode fan-out. The authenticated Codex path is capped at 272K (about 258K effective). `openai_codex` = ChatGPT-subscription OAuth. NEVER use API-key providers. If the slug is rejected after an update, check `dcode config` and stay on the same `openai_codex` provider.
-- `-n` — single task then exit. It **auto-executes tool calls including shell commands, no approval gate** (verified 2026-07-10). The spec's Files/Constraints are the only fence — your independent verification covers the rest.
-- `-q` — clean output for parsing. `--timeout 600` — native wall clock, exits 124 on expiry (`STATUS: timeout`). The outer perl alarm at 660 catches hangs before the graph starts.
+- `-n` — single task then exit. With `-S all` it **auto-executes tool calls including shell commands, no approval gate** (re-verified 2026-08-16 on 0.1.56: `echo LANE_SHELL_OK` ran, exact lane flags, 16s). The spec's Files/Constraints are the only fence — your independent verification covers the rest.
+- `-q` — clean output for parsing. `--timeout 900` — native wall clock, exits 124 on expiry (`STATUS: timeout`); raised from 600 because dcode's plan→read→write→verify loop on a real spec needs 900–1200s (2026-07-10 verdict). The outer perl alarm at 960 catches hangs before the graph starts.
 - `--rubric TEXT|@PATH` exists (dcode-native acceptance grading) — use only when the caller explicitly supplies rubric criteria; it is never a substitute for your own verification re-run.
 
 3. **Verify independently.** Read the diff (`git diff` / `git status`), re-run the spec's verification command yourself, and read dcode's final message from the lanes `LOG` file. dcode's claim of success is not evidence; your re-run is. Never `lanes kill` a session the user may be watching without being asked.

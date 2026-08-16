@@ -7,7 +7,7 @@ metadata:
   node_type: memory
   type: project
   originSessionId: 88b8deba-1f7e-41ae-89f0-dfc41feb1808
-  modified: 2026-08-15T22:48:00.000Z
+  modified: 2026-08-16T21:21:56.103Z
 ---
 
 # Multi-Model Orchestration (Federated)
@@ -77,7 +77,7 @@ Objective · Files · Interfaces · Constraints · Verification command. A spec 
 - codex (GPT-5.6-Sol): `codex exec --ignore-user-config -m gpt-5.6-sol -c model_reasoning_effort=max -c model_context_window=272000 -c approval_policy="never" -s workspace-write --skip-git-repo-check -C "$(pwd)" -o "$FINAL" "$(cat "$SPEC")"` — the prompt is positional. Never use `- < "$SPEC"` under `lanes`; detached stdin hangs. `max` is the highest Omnicode-approved single-agent effort; never `ultra`.
 - grok routine (Grok 4.6, 500K): `grok --prompt-file "$SPEC" -m grok-4.6 --reasoning-effort high --permission-mode acceptEdits --output-format plain --cwd "$(pwd)" --no-plan --max-turns 120 --no-memory --no-subagents --disable-web-search`. RJV alone uses `xhigh`. Never omit `-m` or use `bypassPermissions`.
 - glm (GLM-5.3, 1M ctx, scoped z.ai env, read-only analysis): `glm --model opus -p "$(cat "$SPEC")"`
-- dcode (DeepAgents Code / LangChain harness; ChatGPT subscription only): `cd <project root>` first, then `perl -e 'alarm shift; exec @ARGV' 660 env -u OPENAI_API_KEY -u OPENAI_BASE_URL LANGSMITH_TRACING=false dcode --no-mcp -M openai_codex:gpt-5.6-sol --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}' -q --timeout 600 -n "$(cat "$SPEC")"`. `--no-mcp` is mandatory; only the `openai_codex` subscription engine is allowed.
+- dcode (DeepAgents Code / LangChain harness; ChatGPT subscription only): `cd <project root>` first, then `perl -e 'alarm shift; exec @ARGV' 960 env -u OPENAI_API_KEY -u OPENAI_BASE_URL LANGSMITH_TRACING=false dcode --no-mcp -M openai_codex:gpt-5.6-sol --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}' -S all -q --timeout 900 -n "$(cat "$SPEC")"`. `-S all` is mandatory in headless mode (since ~0.1.4x `-n` runs have NO shell without an allow-list — dcode cannot run git/tests/verification; verified 2026-08-16); `--no-mcp` stays by policy for lanes; only the `openai_codex` subscription engine is allowed. Gotchas: [dcode-deepagents-code.md](dcode-deepagents-code.md).
 - Portable timeout (macOS has no `timeout`/`gtimeout` without coreutils): `T=$(command -v gtimeout || command -v timeout || true); ${T:+$T 600} <cmd>`. Or `perl -e 'alarm shift; exec @ARGV' 600 <cmd>`.
 - ⚠️ **stdin redirects do NOT survive `lanes start`** (2026-07-17: codex lane hung 35 min, empty log): `lanes start x -- codex exec … - < "$SPEC"` applies the redirect to `lanes start` itself, while codex inside tmux waits forever on a tty stdin. Through lanes, always pass prompts by flag/argument (`--prompt-file`, `-p "$(cat …)"`, positional arg) or wrap the whole redirect: `lanes start x -- bash -c 'codex exec … - < spec.txt'`. Empty lane log after minutes = stdin hang, not thinking.
 
@@ -126,7 +126,7 @@ Consult `fable-advisor` (explicit latest `fable` alias, 1M context; read-only, <
 - codex uses ChatGPT subscription auth. `lanes` strips `OPENAI_API_KEY` and other provider keys before launch; always pass `--ignore-user-config -m gpt-5.6-sol` so personal MCP credentials are excluded and model selection is explicit.
 - Gemini/Antigravity are not Omnicode lanes. Never route work there; image-specific Gemini credentials remain outside this system.
 - grok via xAI OAuth (grok.com login).
-- dcode uses only `openai_codex` = ChatGPT-subscription OAuth (LangChain's experimental `_ChatOpenAICodex`; **same quota pool as the codex lane** — parallel dcode+codex fan-outs drain one subscription). The wrapper never routes `xai`, `anthropic`, `openai`, or `openrouter` API-key providers, disables LangSmith tracing, and passes `--no-mcp`.
+- dcode uses only `openai_codex` = ChatGPT-subscription OAuth (LangChain's experimental `_ChatOpenAICodex`; **same quota pool as the codex lane** — parallel dcode+codex fan-outs drain one subscription). The wrapper never routes `xai`, `anthropic`, `openai`, or `openrouter` API-key providers, disables LangSmith tracing, and passes `--no-mcp` + `-S all`.
 - glm via z.ai token (`~/.config/zai/token`); the `glm` launcher scopes `ANTHROPIC_BASE_URL` to its own process (never leaks to parent shell / settings.json).
 - Sandboxes: codex `-s workspace-write` (never `--dangerously-bypass-approvals-and-sandbox`); grok `acceptEdits` for implementation and `plan` for review (never `bypassPermissions`). `lanes` strips common env credentials and GitHub access but is not filesystem-level secret isolation.
 
