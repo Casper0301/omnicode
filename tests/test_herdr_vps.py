@@ -313,6 +313,57 @@ class HerdrVpsWatchdogTests(unittest.TestCase):
 
         self.assertEqual(signals, [])
 
+    def test_live_signal_aborts_when_membership_changes_during_sigterm_intent_log(self):
+        signals = []
+
+        def logger(state_dir, action):
+            watchdog.append_action(state_dir, action)
+            if action["action"] == "sigterm_intent":
+                (self.cgroup / "user.slice" / "herdr-dev.service" / "cgroup.procs").write_text("")
+
+        self.live_terminate(opener=lambda _pid: 42,
+                            sender=lambda _pidfd, sig: signals.append(sig), logger=logger)
+
+        self.assertEqual(signals, [])
+        self.assertEqual([action["action"] for action in self.actions()], [
+            "sigterm_intent", "sigterm_aborted"
+        ])
+        self.assertEqual(self.actions()[-1]["detail"], "cgroup_membership_changed")
+
+    def test_live_signal_aborts_when_main_pid_changes_during_sigterm_intent_log(self):
+        signals = []
+        main_pid = [1]
+
+        def logger(state_dir, action):
+            watchdog.append_action(state_dir, action)
+            if action["action"] == "sigterm_intent":
+                main_pid[0] = 101
+
+        self.live_terminate(metadata=lambda: ("/user.slice/herdr-dev.service", main_pid[0]),
+                            opener=lambda _pid: 42,
+                            sender=lambda _pidfd, sig: signals.append(sig), logger=logger)
+
+        self.assertEqual(signals, [])
+        self.assertEqual([action["action"] for action in self.actions()], [
+            "sigterm_intent", "sigterm_aborted"
+        ])
+        self.assertEqual(self.actions()[-1]["detail"], "main_pid_changed")
+
+    def test_live_signal_aborts_sigkill_when_membership_changes_during_kill_intent_log(self):
+        signals = []
+
+        def logger(state_dir, action):
+            watchdog.append_action(state_dir, action)
+            if action["action"] == "sigkill_intent":
+                (self.cgroup / "user.slice" / "herdr-dev.service" / "cgroup.procs").write_text("")
+
+        self.live_terminate(opener=lambda _pid: 42,
+                            sender=lambda _pidfd, sig: signals.append(sig), logger=logger)
+
+        self.assertEqual(signals, [watchdog.signal.SIGTERM])
+        self.assertEqual(self.actions()[-1]["action"], "sigkill_aborted")
+        self.assertEqual(self.actions()[-1]["detail"], "cgroup_membership_changed")
+
 
 if __name__ == "__main__":
     unittest.main()

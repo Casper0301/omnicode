@@ -275,6 +275,10 @@ def terminate(proc_root, process, state_dir, reason, cgroup_root, control_group,
             return
         # This durable journal/state record is deliberately before delivery.
         logger(state_dir, dict(action_base, action="sigterm_intent"))
+        blocked = revalidate_candidate(proc_root, cgroup_root, control_group, process, metadata_reader)
+        if blocked:
+            logger(state_dir, dict(action_base, action="sigterm_aborted", detail=blocked))
+            return
         try:
             sender(pidfd, signal.SIGTERM)
         except ProcessLookupError:
@@ -287,6 +291,10 @@ def terminate(proc_root, process, state_dir, reason, cgroup_root, control_group,
             logger(state_dir, dict(action_base, action=blocked))
             return
         logger(state_dir, dict(action_base, action="sigkill_intent"))
+        blocked = revalidate_candidate(proc_root, cgroup_root, control_group, process, metadata_reader)
+        if blocked:
+            logger(state_dir, dict(action_base, action="sigkill_aborted", detail=blocked))
+            return
         try:
             sender(pidfd, signal.SIGKILL)
         except ProcessLookupError:
