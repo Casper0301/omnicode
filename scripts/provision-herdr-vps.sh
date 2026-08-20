@@ -251,9 +251,6 @@ chmod 0755 "$download"
 downloaded_version="$("$download" --version)"
 [[ "$downloaded_version" == "herdr $version" ]] || fail "verified binary reports $downloaded_version"
 
-# This is the sole privileged action: user -> admin -> root for user lingering.
-/usr/bin/sudo -n -u admin /usr/bin/sudo -n /usr/bin/loginctl enable-linger user
-
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 [[ -S "$XDG_RUNTIME_DIR/bus" ]] || fail "user systemd bus is unavailable"
 
@@ -296,7 +293,13 @@ if [[ "$action" == "restart-required" ]]; then
   fail "restart required: active herdr-dev.service has changed persistent files (${changes[*]}); stop it explicitly, then rerun provisioning"
 fi
 
+enable_linger() {
+  # This is the sole privileged action: user -> admin -> root for user lingering.
+  /usr/bin/sudo -n -u admin /usr/bin/sudo -n /usr/bin/loginctl enable-linger user
+}
+
 if [[ "$action" == "keep-running" ]]; then
+  enable_linger
   systemctl --user enable herdr-dev.service herdr-vps-watchdog.timer
   [[ "$("$HOME/.local/bin/herdr" --version)" == "herdr $version" ]] || fail "installed version mismatch"
   echo "Herdr files unchanged; active service left running"
@@ -304,6 +307,7 @@ if [[ "$action" == "keep-running" ]]; then
 fi
 
 if [[ "$action" == "start-timer" ]]; then
+  enable_linger
   systemctl --user enable herdr-dev.service herdr-vps-watchdog.timer
   systemctl --user start herdr-vps-watchdog.timer
   systemctl --user is-active --quiet herdr-dev.service
@@ -331,6 +335,7 @@ if [[ ${#changes[@]} -gt 0 ]]; then
   install -m 0644 "$stage/herdr-vps-watchdog.timer" "$HOME/.config/systemd/user/herdr-vps-watchdog.timer"
 fi
 
+enable_linger
 systemctl --user daemon-reload
 systemctl --user enable herdr-dev.service herdr-vps-watchdog.timer
 systemctl --user start herdr-dev.service herdr-vps-watchdog.timer

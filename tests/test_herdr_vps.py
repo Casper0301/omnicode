@@ -2,6 +2,7 @@ import importlib.util
 from importlib.machinery import SourceFileLoader
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -39,16 +40,154 @@ class HerdrVpsProvisioningTests(unittest.TestCase):
         marker = "<<'REMOTE_SCRIPT'\n"
         return provisioner.split(marker, 1)[1].rsplit("\nREMOTE_SCRIPT", 1)[0]
 
-    def run_remote_script(self, arguments, env=None):
+    def run_remote_script(self, arguments, env=None, script=None):
         return subprocess.run(
             ["bash", "-s", "--"] + [str(argument) for argument in arguments],
             cwd=REPO,
             env=env,
-            input=self.remote_script(),
+            input=script if script is not None else self.remote_script(),
             text=True,
             capture_output=True,
             check=False,
         )
+
+    def run_remote_provisioning_flow(
+        self,
+        *,
+        service_output="LoadState=not-found\nActiveState=inactive\n",
+        timer_output="LoadState=not-found\nActiveState=inactive\n",
+        failing_unit="",
+    ):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        home = root / "home"
+        stage = home / ".cache" / "herdr-provision.ABC123"
+        stage.mkdir(parents=True)
+        runtime = root / "run"
+        runtime.mkdir()
+        bus = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        bus.bind(str(runtime / "bus"))
+        self.addCleanup(bus.close)
+        calls = root / "calls"
+
+        for filename in (
+            "herdr-vps-watchdog",
+            "config.toml",
+            "herdr-dev.service",
+            "herdr-vps-watchdog.service",
+            "herdr-vps-watchdog.timer",
+        ):
+            (stage / filename).write_text(f"staged {filename}\n", encoding="utf-8")
+
+        self.write_command(
+            fake_bin,
+            "id",
+            "case \"${1:-}\" in\n"
+            "  -un) printf 'user\\n' ;;\n"
+            "  -u) printf '4242\\n' ;;\n"
+            "  *) exit 2 ;;\n"
+            "esac\n",
+        )
+        self.write_command(
+            fake_bin,
+            "uname",
+            "case \"${1:-}\" in\n"
+            "  -s) printf 'Linux\\n' ;;\n"
+            "  -m) printf 'x86_64\\n' ;;\n"
+            "  *) exit 2 ;;\n"
+            "esac\n",
+        )
+        self.write_command(
+            fake_bin,
+            "curl",
+            "output=''\n"
+            "while [[ $# -gt 0 ]]; do\n"
+            "  if [[ \"$1\" == '--output' ]]; then\n"
+            "    output=\"$2\"\n"
+            "    shift 2\n"
+            "  else\n"
+            "    shift\n"
+            "  fi\n"
+            "done\n"
+            "printf '%s\\n' '#!/usr/bin/env bash' "
+            "\"printf 'herdr 0.8.2\\\\n'\" > \"$output\"\n",
+        )
+        self.write_command(fake_bin, "sha256sum", "cat >/dev/null\nexit 0\n")
+        self.write_command(
+            fake_bin,
+            "systemctl",
+            "printf 'systemctl %s\\n' \"$*\" >> \"$CALL_LOG\"\n"
+            "if [[ \"${1:-}\" == '--user' && \"${2:-}\" == 'show' ]]; then\n"
+            "  unit=\"${3:-}\"\n"
+            "  [[ \"$unit\" != \"$FAILING_UNIT\" ]] || exit 9\n"
+            "  case \"$unit\" in\n"
+            "    herdr-dev.service) printf '%s' \"$SERVICE_OUTPUT\" ;;\n"
+            "    herdr-vps-watchdog.timer) printf '%s' \"$TIMER_OUTPUT\" ;;\n"
+            "    *) exit 8 ;;\n"
+            "  esac\n"
+            "fi\n",
+        )
+        self.write_command(
+            fake_bin,
+            "install",
+            "printf 'install %s\\n' \"$*\" >> \"$CALL_LOG\"\n"
+            "/usr/bin/install \"$@\"\n",
+        )
+        self.write_command(
+            fake_bin,
+            "loginctl",
+            "printf 'loginctl %s\\n' \"$*\" >> \"$CALL_LOG\"\n",
+        )
+        self.write_command(
+            fake_bin,
+            "sudo",
+            "printf 'sudo %s\\n' \"$*\" >> \"$CALL_LOG\"\nexit 97\n",
+        )
+
+        script = self.remote_script()
+        substitutions = {
+            'expected_home="/home/user"': 'expected_home="$HERDR_TEST_HOME"',
+            '[[ "$stage" =~ ^/home/user/\\.cache/herdr-provision\\.[A-Za-z0-9]+$ ]]':
+                '[[ "$stage" == "$HERDR_TEST_STAGE" ]]',
+            'export XDG_RUNTIME_DIR="/run/user/$(id -u)"':
+                'export XDG_RUNTIME_DIR="$HERDR_TEST_RUNTIME_DIR"',
+            "/usr/bin/sudo -n -u admin /usr/bin/sudo -n "
+            "/usr/bin/loginctl enable-linger user": "loginctl enable-linger user",
+        }
+        for production, test_boundary in substitutions.items():
+            self.assertEqual(script.count(production), 1, production)
+            script = script.replace(production, test_boundary)
+
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": str(fake_bin) + os.pathsep + env["PATH"],
+                "HOME": str(home),
+                "CALL_LOG": str(calls),
+                "FAILING_UNIT": failing_unit,
+                "SERVICE_OUTPUT": service_output,
+                "TIMER_OUTPUT": timer_output,
+                "HERDR_TEST_HOME": str(home),
+                "HERDR_TEST_STAGE": str(stage),
+                "HERDR_TEST_RUNTIME_DIR": str(runtime),
+            }
+        )
+        result = self.run_remote_script(
+            [
+                stage,
+                "0.8.2",
+                "https://github.com/herdrdev/herdr/releases/download/"
+                "v0.8.2/herdr-linux-x86_64",
+                "a" * 64,
+            ],
+            env=env,
+            script=script,
+        )
+        attempted = calls.read_text(encoding="utf-8") if calls.exists() else ""
+        return result, attempted
 
     def run_remote_decision(self, changed_count, service_active, timer_active):
         return self.run_remote_script(
@@ -277,6 +416,21 @@ class HerdrVpsProvisioningTests(unittest.TestCase):
             provisioner.index('install -m 0755 "$download"'),
         )
 
+    def test_changed_active_flow_stops_before_linger_install_or_start(self):
+        result, attempted = self.run_remote_provisioning_flow(
+            service_output="LoadState=loaded\nActiveState=active\n",
+            timer_output="LoadState=loaded\nActiveState=active\n",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("restart required", result.stderr)
+        self.assertIn("systemctl --user show herdr-dev.service", attempted)
+        self.assertIn("systemctl --user show herdr-vps-watchdog.timer", attempted)
+        self.assertNotIn("loginctl ", attempted)
+        self.assertNotIn("install ", attempted)
+        self.assertNotIn("systemctl --user enable ", attempted)
+        self.assertNotIn("systemctl --user start ", attempted)
+
     def test_inactive_service_is_installed_and_started(self):
         decision = self.run_remote_decision(6, 0, 0)
         provisioner = PROVISIONER.read_text(encoding="utf-8")
@@ -297,6 +451,48 @@ class HerdrVpsProvisioningTests(unittest.TestCase):
                 self.assertIn("systemctl --user show", attempted)
                 self.assertNotIn("install ", attempted)
                 self.assertNotIn(" start ", attempted)
+
+    def test_full_state_query_failure_stops_before_linger_install_or_start(self):
+        for unit in ("herdr-dev.service", "herdr-vps-watchdog.timer"):
+            with self.subTest(unit=unit):
+                result, attempted = self.run_remote_provisioning_flow(
+                    failing_unit=unit
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"unit state query failed: {unit}", result.stderr)
+                self.assertNotIn("loginctl ", attempted)
+                self.assertNotIn("install ", attempted)
+                self.assertNotIn("systemctl --user enable ", attempted)
+                self.assertNotIn("systemctl --user start ", attempted)
+
+    def test_first_install_enables_linger_then_installs_and_starts(self):
+        result, attempted = self.run_remote_provisioning_flow()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = attempted.splitlines()
+        service_query = calls.index(
+            "systemctl --user show herdr-dev.service "
+            "--property=LoadState --property=ActiveState"
+        )
+        timer_query = calls.index(
+            "systemctl --user show herdr-vps-watchdog.timer "
+            "--property=LoadState --property=ActiveState"
+        )
+        linger = calls.index("loginctl enable-linger user")
+        first_install = next(
+            index for index, call in enumerate(calls) if call.startswith("install ")
+        )
+        start = calls.index(
+            "systemctl --user start herdr-dev.service "
+            "herdr-vps-watchdog.timer"
+        )
+
+        self.assertEqual(calls.count("loginctl enable-linger user"), 1)
+        self.assertLess(service_query, linger)
+        self.assertLess(timer_query, linger)
+        self.assertLess(first_install, linger)
+        self.assertLess(linger, start)
 
     def test_ambiguous_unit_state_stops_before_install_or_start(self):
         output = "LoadState=loaded\nActiveState=activating\n"
