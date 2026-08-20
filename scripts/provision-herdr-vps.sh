@@ -96,6 +96,65 @@ ssh "$SSH_TARGET" bash -s -- \
   "$REMOTE_STAGE" "$local_version" "$asset_url" "$asset_sha256" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
+fail() {
+  echo "provision-herdr-vps(remote): $*" >&2
+  exit 1
+}
+
+query_unit_state() {
+  local unit="$1"
+  local output=""
+  local key=""
+  local value=""
+  local load_state=""
+  local active_state=""
+
+  if ! output="$(
+    systemctl --user show "$unit" \
+      --property=LoadState --property=ActiveState
+  )"; then
+    echo "unit state query failed: $unit" >&2
+    return 1
+  fi
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      LoadState)
+        [[ -z "$load_state" ]] || {
+          echo "duplicate LoadState for $unit" >&2
+          return 1
+        }
+        load_state="$value"
+        ;;
+      ActiveState)
+        [[ -z "$active_state" ]] || {
+          echo "duplicate ActiveState for $unit" >&2
+          return 1
+        }
+        active_state="$value"
+        ;;
+      "") ;;
+      *)
+        echo "unexpected unit state property for $unit: $key" >&2
+        return 1
+        ;;
+    esac
+  done <<< "$output"
+
+  case "$load_state:$active_state" in
+    loaded:active)
+      printf '%s\n' "active"
+      ;;
+    loaded:inactive|not-found:inactive)
+      printf '%s\n' "inactive"
+      ;;
+    *)
+      echo "ambiguous unit state for $unit: LoadState=$load_state ActiveState=$active_state" >&2
+      return 1
+      ;;
+  esac
+}
+
 plan_service_action() {
   local changed_count="$1"
   local service_active="$2"
@@ -115,6 +174,12 @@ plan_service_action() {
   fi
 }
 
+if [[ "${1:-}" == "--state-test" ]]; then
+  state="$(query_unit_state "$2")"
+  printf '%s\n' "$state"
+  exit
+fi
+
 if [[ "${1:-}" == "--decision-test" ]]; then
   decision="$(plan_service_action "$2" "$3" "$4")"
   printf '%s\n' "$decision"
@@ -127,11 +192,6 @@ version="$2"
 asset_url="$3"
 asset_sha256="$4"
 expected_home="/home/user"
-
-fail() {
-  echo "provision-herdr-vps(remote): $*" >&2
-  exit 1
-}
 
 cleanup() {
   rm -rf -- "$stage"
@@ -196,10 +256,20 @@ compare_install "$stage/herdr-dev.service" "$HOME/.config/systemd/user/herdr-dev
 compare_install "$stage/herdr-vps-watchdog.service" "$HOME/.config/systemd/user/herdr-vps-watchdog.service" 644 "watchdog.service"
 compare_install "$stage/herdr-vps-watchdog.timer" "$HOME/.config/systemd/user/herdr-vps-watchdog.timer" 644 "watchdog.timer"
 
+if ! service_state="$(query_unit_state herdr-dev.service)"; then
+  fail "unable to determine herdr-dev.service state"
+fi
+if ! timer_state="$(query_unit_state herdr-vps-watchdog.timer)"; then
+  fail "unable to determine herdr-vps-watchdog.timer state"
+fi
 service_active=0
 timer_active=0
-systemctl --user is-active --quiet herdr-dev.service && service_active=1
-systemctl --user is-active --quiet herdr-vps-watchdog.timer && timer_active=1
+if [[ "$service_state" == "active" ]]; then
+  service_active=1
+fi
+if [[ "$timer_state" == "active" ]]; then
+  timer_active=1
+fi
 action="$(plan_service_action "${#changes[@]}" "$service_active" "$timer_active")"
 
 if [[ "$action" == "restart-required" ]]; then
