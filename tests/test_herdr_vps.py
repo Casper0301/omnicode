@@ -85,6 +85,17 @@ class HerdrVpsProvisioningTests(unittest.TestCase):
         attempted = calls.read_text(encoding="utf-8") if calls.exists() else ""
         return result, attempted
 
+    def assert_remote_state_rejected(self, output, error_fragment):
+        for unit in ("herdr-dev.service", "herdr-vps-watchdog.timer"):
+            with self.subTest(unit=unit, output=output):
+                result, attempted = self.run_remote_state_query(unit, output, 0)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(error_fragment, result.stderr)
+                self.assertIn("systemctl --user show", attempted)
+                self.assertNotIn("install ", attempted)
+                self.assertNotIn(" start ", attempted)
+
     def test_local_wrapper_attaches_to_dev_session_on_configured_vps(self):
         wrapper = WRAPPER.read_text(encoding="utf-8")
 
@@ -298,6 +309,30 @@ class HerdrVpsProvisioningTests(unittest.TestCase):
                 self.assertIn("systemctl --user show", attempted)
                 self.assertNotIn("install ", attempted)
                 self.assertNotIn(" start ", attempted)
+
+    def test_empty_first_duplicate_unit_properties_are_rejected(self):
+        cases = (
+            "LoadState=\nLoadState=loaded\nActiveState=active\n",
+            "LoadState=loaded\nActiveState=\nActiveState=active\n",
+        )
+        for output in cases:
+            self.assert_remote_state_rejected(output, "duplicate")
+
+    def test_keyless_unit_state_line_is_rejected(self):
+        self.assert_remote_state_rejected(
+            "=unexpected\nLoadState=loaded\nActiveState=active\n",
+            "unexpected unit state line",
+        )
+
+    def test_unknown_unit_state_property_is_rejected(self):
+        self.assert_remote_state_rejected(
+            "LoadState=loaded\nSubState=running\nActiveState=active\n",
+            "unexpected unit state property",
+        )
+
+    def test_missing_unit_state_property_is_rejected(self):
+        for output in ("LoadState=loaded\n", "ActiveState=active\n"):
+            self.assert_remote_state_rejected(output, "missing unit state property")
 
     def test_unit_state_query_accepts_only_known_active_or_inactive_states(self):
         cases = (

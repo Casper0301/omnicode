@@ -104,10 +104,13 @@ fail() {
 query_unit_state() {
   local unit="$1"
   local output=""
+  local line=""
   local key=""
   local value=""
   local load_state=""
   local active_state=""
+  local load_seen=0
+  local active_seen=0
 
   if ! output="$(
     systemctl --user show "$unit" \
@@ -117,29 +120,46 @@ query_unit_state() {
     return 1
   fi
 
-  while IFS='=' read -r key value; do
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    if [[ "$line" != *=* ]]; then
+      echo "unexpected unit state line for $unit: $line" >&2
+      return 1
+    fi
+    key="${line%%=*}"
+    value="${line#*=}"
+    if [[ -z "$key" ]]; then
+      echo "unexpected unit state line for $unit: $line" >&2
+      return 1
+    fi
     case "$key" in
       LoadState)
-        [[ -z "$load_state" ]] || {
+        [[ "$load_seen" == "0" ]] || {
           echo "duplicate LoadState for $unit" >&2
           return 1
         }
+        load_seen=1
         load_state="$value"
         ;;
       ActiveState)
-        [[ -z "$active_state" ]] || {
+        [[ "$active_seen" == "0" ]] || {
           echo "duplicate ActiveState for $unit" >&2
           return 1
         }
+        active_seen=1
         active_state="$value"
         ;;
-      "") ;;
       *)
         echo "unexpected unit state property for $unit: $key" >&2
         return 1
         ;;
     esac
   done <<< "$output"
+
+  if [[ "$load_seen" != "1" || "$active_seen" != "1" ]]; then
+    echo "missing unit state property for $unit" >&2
+    return 1
+  fi
 
   case "$load_state:$active_state" in
     loaded:active)
