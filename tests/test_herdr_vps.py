@@ -1,0 +1,167 @@
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+REPO = Path(__file__).resolve().parents[1]
+WATCHDOG = REPO / "bin" / "herdr-vps-watchdog"
+GIB = 1024 ** 3
+MIB = 1024 ** 2
+
+
+class HerdrVpsWatchdogTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.proc = self.root / "proc"
+        self.cgroup = self.root / "cgroup"
+        self.state = self.root / "state"
+        self.proc.mkdir()
+        (self.cgroup / "user.slice" / "herdr-dev.service").mkdir(parents=True)
+        self.set_memory_available(20 * GIB)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def set_memory_available(self, bytes_available):
+        (self.proc / "meminfo").write_text(
+            f"MemAvailable: {bytes_available // 1024} kB\n", encoding="utf-8"
+        )
+
+    def add_process(self, pid, *, start_time, rss, command="agent", in_cgroup=True, cgroup_child=""):
+        process = self.proc / str(pid)
+        process.mkdir(exist_ok=True)
+        # Field 22 is starttime.  The command deliberately contains a space to
+        # exercise /proc/stat parsing rather than relying on split().
+        stat_tail = ["S"] + ["0"] * 18 + [str(start_time)] + ["0"] * 4
+        (process / "stat").write_text(
+            f"{pid} ({command}) {' '.join(stat_tail)}\n", encoding="utf-8"
+        )
+        (process / "status").write_text(
+            f"Name:\t{command}\nVmRSS:\t{rss // 1024} kB\n", encoding="utf-8"
+        )
+        if in_cgroup:
+            service = self.cgroup / "user.slice" / "herdr-dev.service"
+            (service / "cgroup.procs").touch(exist_ok=True)
+            procs = service / cgroup_child / "cgroup.procs"
+            procs.parent.mkdir(parents=True, exist_ok=True)
+            current = procs.read_text(encoding="utf-8") if procs.exists() else ""
+            pids = {line for line in current.splitlines() if line}
+            pids.add(str(pid))
+            procs.write_text("\n".join(sorted(pids)) + "\n", encoding="utf-8")
+
+    def run_watchdog(self, *, main_pid=1):
+        env = os.environ.copy()
+        env.update(
+            {
+                "PROC_ROOT": str(self.proc),
+                "CGROUP_ROOT": str(self.cgroup),
+                "STATE_DIR": str(self.state),
+                "CONTROL_GROUP": "/user.slice/herdr-dev.service",
+                "MAIN_PID": str(main_pid),
+                "HERDR_WATCHDOG_DRY_RUN": "1",
+            }
+        )
+        return subprocess.run(
+            [sys.executable, str(WATCHDOG), "--dry-run"],
+            cwd=REPO,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def actions(self):
+        action_file = self.state / "actions.jsonl"
+        if not action_file.exists():
+            return []
+        return [json.loads(line) for line in action_file.read_text(encoding="utf-8").splitlines()]
+
+    def test_healthy_process_exits_zero_without_action(self):
+        self.add_process(101, start_time=1000, rss=512 * MIB)
+
+        result = self.run_watchdog()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.actions(), [])
+
+    def test_one_high_sample_does_not_trigger(self):
+        self.add_process(101, start_time=1000, rss=7 * GIB)
+
+        result = self.run_watchdog()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.actions(), [])
+
+    def test_three_high_growing_samples_trigger_dry_run_action(self):
+        # The workload can live in a descendant cgroup, not only the service
+        # root cgroup.
+        self.add_process(101, start_time=1000, rss=6 * GIB, cgroup_child="pane.scope")
+        self.run_watchdog()
+        self.add_process(101, start_time=1000, rss=6 * GIB + 300 * MIB, cgroup_child="pane.scope")
+        self.run_watchdog()
+        self.add_process(101, start_time=1000, rss=6 * GIB + 600 * MIB, cgroup_child="pane.scope")
+
+        result = self.run_watchdog()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actions = self.actions()
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["action"], "would_terminate")
+        self.assertEqual(actions[0]["pid"], 101)
+        self.assertEqual(actions[0]["reason"], "sustained_growth")
+
+    def test_process_outside_service_cgroup_is_never_a_candidate(self):
+        for rss in (6 * GIB, 6 * GIB + 300 * MIB, 6 * GIB + 700 * MIB):
+            self.add_process(999, start_time=1000, rss=rss, in_cgroup=False)
+            # cgroup metadata exists but does not list the outside process.
+            (self.cgroup / "user.slice" / "herdr-dev.service" / "cgroup.procs").touch(exist_ok=True)
+            self.run_watchdog()
+
+        self.assertEqual(self.actions(), [])
+
+    def test_main_pid_is_protected_even_when_it_leaks(self):
+        for rss in (6 * GIB, 6 * GIB + 300 * MIB, 6 * GIB + 700 * MIB):
+            self.add_process(101, start_time=1000, rss=rss)
+            self.run_watchdog(main_pid=101)
+
+        self.assertEqual(self.actions(), [])
+
+    def test_pid_reuse_resets_sample_history(self):
+        self.add_process(101, start_time=1000, rss=6 * GIB)
+        self.run_watchdog()
+        self.add_process(101, start_time=2000, rss=7 * GIB)
+        self.run_watchdog()
+        self.add_process(101, start_time=2000, rss=7 * GIB + 300 * MIB)
+        self.run_watchdog()
+        self.assertEqual(self.actions(), [])
+
+        self.add_process(101, start_time=2000, rss=7 * GIB + 700 * MIB)
+        result = self.run_watchdog()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actions = self.actions()
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["start_time"], "2000")
+
+    def test_pressure_fallback_requires_three_consecutive_pressure_samples(self):
+        self.set_memory_available(3 * GIB)
+        for rss in (2 * GIB, 2 * GIB + 150 * MIB, 2 * GIB + 300 * MIB):
+            self.add_process(101, start_time=1000, rss=rss)
+            # A second child takes aggregate service RSS over the pressure limit.
+            self.add_process(102, start_time=1001, rss=11 * GIB)
+            result = self.run_watchdog()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actions = self.actions()
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["pid"], 101)
+        self.assertEqual(actions[0]["reason"], "memory_pressure")
+
+
+if __name__ == "__main__":
+    unittest.main()

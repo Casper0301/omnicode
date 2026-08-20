@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""Fail-closed, cgroup-scoped memory leak watchdog for herdr-dev.service."""
+
+import argparse
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+GIB = 1024 ** 3
+MIB = 1024 ** 2
+STATE_FILE = "samples.json"
+ACTION_FILE = "actions.jsonl"
+
+
+def env_value(name, default=None):
+    """Accept the documented injected input and its watchdog-prefixed form."""
+    return os.environ.get(name, os.environ.get("HERDR_WATCHDOG_" + name, default))
+
+
+def parse_size(value, default):
+    if value is None:
+        return default
+    text = str(value).strip().lower().replace(" ", "")
+    match = re.fullmatch(r"(\d+)(b|kib|kb|mib|mb|gib|gb)?", text)
+    if not match:
+        raise ValueError("invalid byte value: " + str(value))
+    scale = {None: 1, "b": 1, "kib": 1024, "kb": 1000,
+             "mib": MIB, "mb": 1000 ** 2, "gib": GIB, "gb": 1000 ** 3}
+    return int(match.group(1)) * scale[match.group(2)]
+
+
+def threshold(name, default, *aliases):
+    for key in (name,) + aliases:
+        value = os.environ.get("HERDR_WATCHDOG_" + key)
+        if value is not None:
+            return parse_size(value, default)
+    return default
+
+
+def integer_threshold(name, default):
+    value = os.environ.get("HERDR_WATCHDOG_" + name)
+    return default if value is None else int(value)
+
+
+def sanitize_command(command):
+    return re.sub(r"[^A-Za-z0-9._:+@/-]", "_", command)[:160] or "unknown"
+
+
+def read_stat(proc_root, pid):
+    stat_path = proc_root / str(pid) / "stat"
+    stat = stat_path.read_text(encoding="utf-8").strip()
+    opening = stat.find("(")
+    closing = stat.rfind(")")
+    if opening <= 0 or closing <= opening or closing + 2 > len(stat):
+        raise ValueError("ambiguous proc stat")
+    tail = stat[closing + 2:].split()
+    # tail starts at field 3; /proc's starttime is field 22.
+    if len(tail) <= 19:
+        raise ValueError("truncated proc stat")
+    return stat[opening + 1:closing], tail[19]
+
+
+def read_rss(proc_root, pid):
+    status = (proc_root / str(pid) / "status").read_text(encoding="utf-8")
+    match = re.search(r"^VmRSS:\s*(\d+)\s*kB\s*$", status, re.MULTILINE)
+    if not match:
+        raise ValueError("missing VmRSS")
+    return int(match.group(1)) * 1024
+
+
+def read_mem_available(proc_root):
+    meminfo = (proc_root / "meminfo").read_text(encoding="utf-8")
+    match = re.search(r"^MemAvailable:\s*(\d+)\s*kB\s*$", meminfo, re.MULTILINE)
+    if not match:
+        raise ValueError("missing MemAvailable")
+    return int(match.group(1)) * 1024
+
+
+def service_metadata():
+    result = subprocess.run(
+        ["systemctl", "--user", "show", "herdr-dev.service",
+         "--property=ControlGroup", "--property=MainPID"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        raise ValueError("unable to read herdr-dev.service metadata")
+    values = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            values[key] = value
+    control_group = values.get("ControlGroup")
+    main_pid = values.get("MainPID")
+    if not control_group or not main_pid or not main_pid.isdigit() or int(main_pid) <= 0:
+        raise ValueError("missing herdr-dev.service metadata")
+    return control_group, int(main_pid)
+
+
+def cgroup_path(cgroup_root, control_group):
+    if not control_group.startswith("/") or ".." in Path(control_group).parts:
+        raise ValueError("unsafe control group")
+    path = (cgroup_root / control_group.lstrip("/")).resolve()
+    root = cgroup_root.resolve()
+    if root != path and root not in path.parents:
+        raise ValueError("control group escapes root")
+    if not path.is_dir():
+        raise ValueError("control group does not exist")
+    return path
+
+
+def cgroup_pids(path):
+    pids = set()
+    # cgroup v2 processes can be assigned to descendant cgroups.  Reading each
+    # cgroup.procs is deliberate: a parent cgroup.procs does not include them.
+    for directory, _, filenames in os.walk(path):
+        if "cgroup.procs" not in filenames:
+            continue
+        proc_file = Path(directory) / "cgroup.procs"
+        for line in proc_file.read_text(encoding="utf-8").splitlines():
+            if not line.isdigit() or int(line) <= 0:
+                raise ValueError("invalid cgroup pid")
+            pids.add(int(line))
+    if not pids:
+        # An empty cgroup is healthy, but a missing root cgroup.procs is not
+        # sufficient metadata to make a kill decision.
+        if not (path / "cgroup.procs").is_file():
+            raise ValueError("missing cgroup.procs")
+    return pids
+
+
+def sample_processes(proc_root, pids):
+    processes = []
+    # Any unreadable process means the snapshot is incomplete.  Do not make a
+    # decision based on incomplete cgroup membership.
+    for pid in sorted(pids):
+        command, start_time = read_stat(proc_root, pid)
+        processes.append({
+            "pid": pid,
+            "start_time": str(start_time),
+            "rss": read_rss(proc_root, pid),
+            "command": sanitize_command(command),
+        })
+    return processes
+
+
+def load_state(state_dir):
+    path = state_dir / STATE_FILE
+    if not path.exists():
+        return {"version": 1, "entries": {}}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), dict):
+        raise ValueError("invalid watchdog state")
+    return data
+
+
+def save_state(state_dir, state):
+    state_dir.mkdir(parents=True, exist_ok=True)
+    temporary = state_dir / (STATE_FILE + ".tmp")
+    temporary.write_text(json.dumps(state, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+    temporary.replace(state_dir / STATE_FILE)
+
+
+def append_action(state_dir, action):
+    state_dir.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(action, sort_keys=True, separators=(",", ":"))
+    with (state_dir / ACTION_FILE).open("a", encoding="utf-8") as file:
+        file.write(line + "\n")
+    # systemd journals standard output, so this is the journal JSON line.
+    print(line, flush=True)
+
+
+def identity(process):
+    return "%s:%s" % (process["pid"], process["start_time"])
+
+
+def update_entry(previous, process, pressure_active, config):
+    high = process["rss"] >= config["leak_rss"]
+    high_streak = previous.get("high_streak", 0) + 1 if high else 0
+    high_anchor = previous.get("high_anchor_rss", process["rss"]) if high_streak > 1 else process["rss"]
+
+    pressure_qualifies = pressure_active and process["rss"] >= config["pressure_child_rss"]
+    pressure_streak = previous.get("pressure_streak", 0) + 1 if pressure_qualifies else 0
+    pressure_anchor = (previous.get("pressure_anchor_rss", process["rss"])
+                       if pressure_streak > 1 else process["rss"])
+    entry = dict(process)
+    entry.update({
+        "high_streak": high_streak,
+        "high_anchor_rss": high_anchor,
+        "pressure_streak": pressure_streak,
+        "pressure_anchor_rss": pressure_anchor,
+    })
+    return entry
+
+
+def candidate(entries, config):
+    regular = [entry for entry in entries if entry["high_streak"] >= config["samples"]
+               and entry["rss"] - entry["high_anchor_rss"] >= config["leak_growth"]]
+    if regular:
+        return max(regular, key=lambda entry: entry["rss"]), "sustained_growth"
+    pressure = [entry for entry in entries if entry["pressure_streak"] >= config["samples"]
+                and entry["rss"] - entry["pressure_anchor_rss"] >= config["pressure_child_growth"]]
+    if pressure:
+        return max(pressure, key=lambda entry: entry["rss"]), "memory_pressure"
+    return None, None
+
+
+def same_identity_alive(proc_root, process):
+    try:
+        _, start_time = read_stat(proc_root, process["pid"])
+    except (OSError, ValueError):
+        return False
+    return str(start_time) == process["start_time"]
+
+
+def terminate(proc_root, process, state_dir, reason):
+    action_base = {"pid": process["pid"], "start_time": process["start_time"],
+                   "command": process["command"], "rss": process["rss"], "reason": reason,
+                   "timestamp": int(time.time())}
+    if not same_identity_alive(proc_root, process):
+        append_action(state_dir, dict(action_base, action="identity_changed"))
+        return
+    try:
+        os.kill(process["pid"], signal.SIGTERM)
+    except ProcessLookupError:
+        append_action(state_dir, dict(action_base, action="already_exited"))
+        return
+    append_action(state_dir, dict(action_base, action="sigterm"))
+    time.sleep(10)
+    if same_identity_alive(proc_root, process):
+        try:
+            os.kill(process["pid"], signal.SIGKILL)
+            append_action(state_dir, dict(action_base, action="sigkill"))
+        except ProcessLookupError:
+            append_action(state_dir, dict(action_base, action="exited_after_sigterm"))
+
+
+def config_from_environment():
+    return {
+        "leak_rss": threshold("LEAK_RSS_BYTES", 6 * GIB, "RSS_BYTES", "LEAK_RSS"),
+        "leak_growth": threshold("LEAK_GROWTH_BYTES", 512 * MIB, "GROWTH_BYTES", "LEAK_GROWTH"),
+        "pressure_available": threshold("PRESSURE_AVAILABLE_BYTES", 4 * GIB, "AVAILABLE_MEMORY_BYTES"),
+        "pressure_cgroup_rss": threshold("PRESSURE_CGROUP_RSS_BYTES", 12 * GIB, "CGROUP_RSS_BYTES"),
+        "pressure_child_rss": threshold("PRESSURE_CHILD_RSS_BYTES", 2 * GIB, "CHILD_RSS_BYTES"),
+        "pressure_child_growth": threshold("PRESSURE_CHILD_GROWTH_BYTES", 256 * MIB, "CHILD_GROWTH_BYTES"),
+        "samples": integer_threshold("SAMPLES", 3),
+    }
+
+
+def run(dry_run):
+    proc_root = Path(env_value("PROC_ROOT", "/proc"))
+    cgroup_root = Path(env_value("CGROUP_ROOT", "/sys/fs/cgroup"))
+    state_dir = Path(env_value("STATE_DIR", str(Path.home() / ".local/state/herdr-watchdog")))
+    configured_control_group = env_value("CONTROL_GROUP")
+    configured_main_pid = env_value("MAIN_PID")
+    if (configured_control_group is None) != (configured_main_pid is None):
+        raise ValueError("CONTROL_GROUP and MAIN_PID must be set together")
+    if configured_control_group is None:
+        control_group, main_pid = service_metadata()
+    else:
+        if not configured_main_pid.isdigit() or int(configured_main_pid) <= 0:
+            raise ValueError("invalid MAIN_PID")
+        control_group, main_pid = configured_control_group, int(configured_main_pid)
+
+    config = config_from_environment()
+    if config["samples"] < 1:
+        raise ValueError("SAMPLES must be positive")
+    pids = cgroup_pids(cgroup_path(cgroup_root, control_group))
+    processes = sample_processes(proc_root, pids)
+    available = read_mem_available(proc_root)
+    aggregate_rss = sum(process["rss"] for process in processes)
+    pressure_active = (available < config["pressure_available"]
+                       and aggregate_rss > config["pressure_cgroup_rss"])
+
+    old_state = load_state(state_dir)
+    old_entries = old_state["entries"]
+    updated = []
+    for process in processes:
+        if process["pid"] == main_pid:
+            continue
+        updated.append(update_entry(old_entries.get(identity(process), {}), process, pressure_active, config))
+    save_state(state_dir, {"version": 1, "entries": {identity(entry): entry for entry in updated}})
+
+    process, reason = candidate(updated, config)
+    if process is None:
+        return 0
+    action = {"action": "would_terminate" if dry_run else "selected", "pid": process["pid"],
+              "start_time": process["start_time"], "command": process["command"], "rss": process["rss"],
+              "reason": reason, "timestamp": int(time.time())}
+    append_action(state_dir, action)
+    if not dry_run:
+        terminate(proc_root, process, state_dir, reason)
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true", help="log candidates without signalling them")
+    arguments = parser.parse_args()
+    dry_run = arguments.dry_run or os.environ.get("HERDR_WATCHDOG_DRY_RUN") == "1"
+    try:
+        return run(dry_run)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        # Failing closed avoids all signalling and makes the unit failure visible.
+        print("herdr-vps-watchdog: fail closed: " + str(error), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
