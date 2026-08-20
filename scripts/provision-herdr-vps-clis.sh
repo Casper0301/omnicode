@@ -67,7 +67,7 @@ version_output_matches() {
   local output="$1"
   local expected="$2"
   local escaped="${expected//./\\.}"
-  printf '%s\n' "$output" | grep -Eq "(^|[^0-9A-Za-z])${escaped}([^0-9A-Za-z]|$)"
+  printf '%s\n' "$output" | grep -Eq "(^|[^0-9A-Za-z])v?${escaped}([^0-9A-Za-z]|$)"
 }
 
 probe_runtime() {
@@ -398,6 +398,10 @@ remote_main() {
 
   PATH="$HOME/.local/bin:$HOME/.grok/bin:$HOME/.hermes/bin:$PATH"
   export PATH
+  npm_config_cache="$HOME/.cache/npm-herdr"
+  export npm_config_cache
+  mkdir -p "$npm_config_cache"
+  chmod 0700 "$npm_config_cache"
 
   if probe_runtime claude "$CLAUDE_VERSION" claude; then have_claude=1; else
     probe_result=$?; [[ "$probe_result" == "2" ]] || mismatch=1
@@ -547,7 +551,8 @@ remote_main() {
   fi
 
   if [[ "$have_dcode" == "0" ]]; then
-    download_verified_sha256 dcode "$DCODE_URL" "$DCODE_SHA256" "$stage/deepagents-code.whl"
+    download_verified_sha256 dcode "$DCODE_URL" "$DCODE_SHA256" \
+      "$stage/deepagents_code-0.1.56-py3-none-any.whl"
   fi
   [[ "$have_claude" == "1" ]] ||
     stage_npm_runtime "$CLAUDE_PACKAGE" "$CLAUDE_INTEGRITY" "$stage" claude_archive
@@ -556,7 +561,8 @@ remote_main() {
   [[ "$have_pi" == "1" ]] ||
     stage_npm_runtime "$PI_PACKAGE" "$PI_INTEGRITY" "$stage" pi_archive
   if [[ "$have_hermes" == "0" ]]; then
-    download_verified_sha256 uv "$UV_URL" "$UV_SHA256" "$stage/uv.whl"
+    download_verified_sha256 uv "$UV_URL" "$UV_SHA256" \
+      "$stage/uv-0.10.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
     if [[ ! -e "$hermes_source" ]]; then
       stage_hermes_checkout "$stage"
     fi
@@ -588,7 +594,8 @@ remote_main() {
     env -u PIP_EXTRA_INDEX_URL -u PIP_TRUSTED_HOST \
       PIP_INDEX_URL="$PYPI_INDEX" \
       "$dcode_environment/bin/python" -m pip install \
-        --disable-pip-version-check "$stage/deepagents-code.whl"
+        --disable-pip-version-check \
+        "$stage/deepagents_code-0.1.56-py3-none-any.whl"
     [[ -x "$dcode_environment/bin/dcode" ]] || fail "dcode wheel did not produce its CLI"
     [[ -x "$dcode_environment/bin/deepagents-code" ]] ||
       fail "dcode wheel did not produce its compatibility CLI"
@@ -607,7 +614,8 @@ remote_main() {
   [[ "$have_pi" == "1" ]] || install_npm_runtime pi "$PI_VERSION" pi "$pi_archive"
 
   if [[ "$have_hermes" == "0" ]]; then
-    install_hermes "$stage" "$stage/uv.whl"
+    install_hermes "$stage" \
+      "$stage/uv-0.10.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
   fi
   install -m 0644 "$remote_profile" "$HOME/.config/herdr/remote-profile.sh"
   local login_profile="$HOME/.profile"
