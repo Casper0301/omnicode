@@ -6,6 +6,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SSH_TARGET="caspers_vps"
 REMOTE_STAGE=""
 REMOTE_INSTALL_STAGE=""
+INSTALL_TRANSACTION_ACTIVE=0
 
 CLAUDE_VERSION="2.1.237"
 CLAUDE_PACKAGE="@anthropic-ai/claude-code@2.1.237"
@@ -29,6 +30,8 @@ HERMES_VERSION="0.20.4"
 HERMES_REPOSITORY="https://github.com/NousResearch/hermes-agent.git"
 HERMES_COMMIT="e624e9fde561e1add9388384012b295fde669ade"
 UV_VERSION="0.10.9"
+UV_URL="https://files.pythonhosted.org/packages/79/34/b104c413079874493eed7bf11838b47b697cf1f0ed7e9de374ea37b4e4e0/uv-0.10.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+UV_SHA256="7c9d6deb30edbc22123be75479f99fb476613eaf38a8034c0e98bba24a344179"
 GROK_VERSION="1.0.5"
 GROK_URL="https://x.ai/cli/grok-1.0.5-linux-x86_64"
 CURSOR_VERSION="2026.08.11-e8db854"
@@ -161,14 +164,49 @@ verify_npm_integrity() {
     fail "npm integrity mismatch for $package_spec"
 }
 
+stage_npm_runtime() {
+  local package_spec="$1"
+  local expected_integrity="$2"
+  local stage="$3"
+  local output_variable="$4"
+  local filename=""
+  local archive=""
+  local actual_integrity=""
+
+  verify_npm_integrity "$package_spec" "$expected_integrity"
+  filename="$(
+    npm pack --silent --pack-destination "$stage" \
+      --registry "$NPM_REGISTRY" "$package_spec"
+  )" || fail "unable to stage npm package $package_spec"
+  filename="${filename##*$'\n'}"
+  [[ -n "$filename" && "$filename" == "$(basename "$filename")" ]] ||
+    fail "npm returned an unsafe staged filename for $package_spec"
+  archive="$stage/$filename"
+  [[ -f "$archive" && ! -L "$archive" ]] ||
+    fail "npm did not stage a regular archive for $package_spec"
+  actual_integrity="$(python3 - "$archive" <<'PY'
+import base64
+import hashlib
+import pathlib
+import sys
+
+payload = pathlib.Path(sys.argv[1]).read_bytes()
+print("sha512-" + base64.b64encode(hashlib.sha512(payload).digest()).decode("ascii"))
+PY
+)" || fail "unable to hash staged npm package $package_spec"
+  [[ "$actual_integrity" == "$expected_integrity" ]] ||
+    fail "staged npm integrity mismatch for $package_spec"
+  printf -v "$output_variable" '%s' "$archive"
+}
+
 install_npm_runtime() {
   local label="$1"
   local expected="$2"
   local executable="$3"
-  local package_spec="$4"
+  local archive="$4"
 
   npm install --global --prefix "$HOME/.local" --no-audit --no-fund \
-    --registry "$NPM_REGISTRY" "$package_spec"
+    --registry "$NPM_REGISTRY" "$archive"
   hash -r
   probe_runtime "$label" "$expected" "$executable" >/dev/null ||
     fail "$label install did not produce version $expected"
@@ -177,6 +215,7 @@ install_npm_runtime() {
 
 install_hermes() {
   local install_stage="$1"
+  local staged_uv="$2"
   local source="$HOME/.hermes/hermes-agent"
   local staged_source="$install_stage/hermes-agent"
   local uv_environment="$HOME/.local/share/herdr-clis/uv-$UV_VERSION"
@@ -196,7 +235,7 @@ install_hermes() {
     env -u PIP_EXTRA_INDEX_URL -u PIP_TRUSTED_HOST \
       PIP_INDEX_URL="$PYPI_INDEX" \
       "$uv_environment/bin/python" -m pip install \
-        --disable-pip-version-check "uv==$UV_VERSION"
+        --disable-pip-version-check --no-deps "$staged_uv"
   fi
   [[ -x "$uv_binary" ]] || fail "uv bootstrap did not produce $uv_binary"
   uv_output="$("$uv_binary" --version 2>/dev/null || true)"
@@ -212,12 +251,7 @@ install_hermes() {
     [[ "$checkout" == "$HERMES_COMMIT" ]] ||
       fail "replacement required: Hermes checkout is not $HERMES_COMMIT"
   else
-    [[ ! -e "$staged_source" ]] || fail "Hermes staging path already exists"
-    mkdir -p "$staged_source"
-    git -C "$staged_source" init --quiet
-    git -C "$staged_source" remote add origin "$HERMES_REPOSITORY"
-    git -C "$staged_source" fetch --quiet --depth 1 origin "$HERMES_COMMIT"
-    git -C "$staged_source" checkout --quiet --detach FETCH_HEAD
+    [[ -d "$staged_source/.git" ]] || fail "Hermes staged checkout is missing"
     checkout="$(git -C "$staged_source" rev-parse HEAD)"
     [[ "$checkout" == "$HERMES_COMMIT" ]] || fail "Hermes commit verification failed"
     mkdir -p "$(dirname "$source")"
@@ -237,11 +271,95 @@ install_hermes() {
 }
 
 cleanup_install_stage() {
+  local status=$?
+  if [[ "$INSTALL_TRANSACTION_ACTIVE" == "1" && "$status" != "0" ]]; then
+    echo "INCOMPLETE provision transaction: rerun the pinned provisioner; managed paths are recoverable" >&2
+  fi
   if [[ -n "$REMOTE_INSTALL_STAGE" ]]; then
-    [[ "$REMOTE_INSTALL_STAGE" == "$HOME/.cache/herdr-cli-provision."* ]] || return
+    [[ "$REMOTE_INSTALL_STAGE" == "$HOME/.cache/herdr-cli-provision."* ]] || return "$status"
     rm -rf -- "$REMOTE_INSTALL_STAGE"
     REMOTE_INSTALL_STAGE=""
   fi
+  return "$status"
+}
+
+assert_destination_parent_safe() {
+  local path="$1"
+  local current="$HOME"
+  local relative="${path#"$HOME"/}"
+  local component=""
+  local parent="${path%/*}"
+  local resolved=""
+  local resolved_home=""
+  local -a components=()
+
+  [[ "$path" == "$HOME/"* ]] || fail "destination escapes home: $path"
+  resolved="$(python3 - "$parent" <<'PY'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY
+)" || fail "cannot resolve destination parent: $parent"
+  resolved_home="$(python3 - "$HOME" <<'PY'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY
+)" || fail "cannot resolve remote home"
+  [[ "$resolved" == "$resolved_home" || "$resolved" == "$resolved_home/"* ]] ||
+    fail "destination parent escapes home: $parent"
+  IFS='/' read -r -a components <<< "$relative"
+  for component in "${components[@]:0:${#components[@]}-1}"; do
+    current="$current/$component"
+    [[ ! -L "$current" ]] || fail "replacement required: symlinked destination parent at $current"
+    [[ ! -e "$current" || -d "$current" ]] ||
+      fail "replacement required: non-directory destination parent at $current"
+  done
+}
+
+assert_absent_destination() {
+  local path="$1"
+  assert_destination_parent_safe "$path"
+  [[ ! -e "$path" && ! -L "$path" ]] ||
+    fail "replacement required: unrelated path at $path"
+}
+
+assert_managed_directory_destination() {
+  local path="$1"
+  assert_destination_parent_safe "$path"
+  if [[ -e "$path" || -L "$path" ]]; then
+    [[ -d "$path" && ! -L "$path" && -f "$path/.herdr-vps-managed" ]] ||
+      fail "replacement required: unmanaged directory at $path"
+  fi
+}
+
+assert_managed_link_destination() {
+  local path="$1"
+  local target="$2"
+  local current=""
+  assert_destination_parent_safe "$path"
+  if [[ -L "$path" ]]; then
+    current="$(readlink "$path")"
+    [[ "$current" == "$target" ]] ||
+      fail "replacement required: unrelated symlink at $path"
+  elif [[ -e "$path" ]]; then
+    fail "replacement required: unrelated path at $path"
+  fi
+}
+
+stage_hermes_checkout() {
+  local stage="$1"
+  local staged_source="$stage/hermes-agent"
+  local checkout=""
+
+  [[ ! -e "$staged_source" ]] || fail "Hermes staging path already exists"
+  mkdir -p "$staged_source"
+  git -C "$staged_source" init --quiet
+  git -C "$staged_source" remote add origin "$HERMES_REPOSITORY"
+  git -C "$staged_source" fetch --quiet --depth 1 origin "$HERMES_COMMIT"
+  git -C "$staged_source" checkout --quiet --detach FETCH_HEAD
+  checkout="$(git -C "$staged_source" rev-parse HEAD)"
+  [[ "$checkout" == "$HERMES_COMMIT" ]] || fail "Hermes commit verification failed"
 }
 
 remote_main() {
@@ -261,6 +379,15 @@ remote_main() {
   local have_cursor=0
   local stage=""
   local archive_entries=""
+  local claude_archive=""
+  local codex_archive=""
+  local pi_archive=""
+  local dcode_environment="$HOME/.local/share/herdr-clis/dcode-$DCODE_VERSION"
+  local uv_environment="$HOME/.local/share/herdr-clis/uv-$UV_VERSION"
+  local hermes_source="$HOME/.hermes/hermes-agent"
+  local hermes_origin=""
+  local hermes_checkout=""
+  local uv_output=""
 
   [[ "$(id -un)" == "user" ]] || fail "SSH login must be user"
   [[ "$HOME" == "$expected_home" ]] || fail "unexpected remote home: $HOME"
@@ -297,8 +424,8 @@ remote_main() {
   if command -v grok >/dev/null 2>&1; then
     if probe_runtime grok "$GROK_VERSION" grok; then have_grok=1; else mismatch=1; fi
   fi
-  if command -v agent >/dev/null 2>&1; then
-    if probe_runtime "grok alias agent" "$GROK_VERSION" agent; then
+  if [[ -x "$HOME/.grok/bin/agent" ]]; then
+    if probe_runtime "grok alias agent" "$GROK_VERSION" "$HOME/.grok/bin/agent"; then
       have_grok=1
     else
       mismatch=1
@@ -323,11 +450,81 @@ remote_main() {
     exit 0
   fi
 
-  for command in install mkdir mktemp rm; do
+  for command in basename install mkdir mktemp python3 rm; do
     require_command "$command"
   done
-  mkdir -p "$HOME/.local/bin" "$HOME/.local/share/herdr-clis" \
-    "$HOME/.cache" "$HOME/.config/herdr"
+  [[ -f "$remote_profile" && ! -L "$remote_profile" ]] ||
+    fail "remote profile must be a regular staged file"
+
+  # Resolve every persistent destination before downloads or installation.
+  [[ "$have_omp" == "1" ]] || assert_absent_destination "$HOME/.local/bin/omp"
+  [[ "$have_opencode" == "1" ]] || assert_absent_destination "$HOME/.local/bin/opencode"
+  if [[ "$have_dcode" == "0" ]]; then
+    assert_managed_directory_destination "$dcode_environment"
+    assert_managed_link_destination "$HOME/.local/bin/dcode" "$dcode_environment/bin/dcode"
+    assert_managed_link_destination \
+      "$HOME/.local/bin/deepagents-code" "$dcode_environment/bin/deepagents-code"
+  fi
+  if [[ "$have_claude" == "0" ]]; then
+    assert_absent_destination "$HOME/.local/bin/claude"
+    assert_absent_destination "$HOME/.local/lib/node_modules/@anthropic-ai/claude-code"
+  fi
+  if [[ "$have_codex" == "0" ]]; then
+    assert_absent_destination "$HOME/.local/bin/codex"
+    assert_absent_destination "$HOME/.local/lib/node_modules/@openai/codex"
+  fi
+  if [[ "$have_pi" == "0" ]]; then
+    assert_absent_destination "$HOME/.local/bin/pi"
+    assert_absent_destination "$HOME/.local/lib/node_modules/@earendil-works/pi-coding-agent"
+  fi
+  if [[ "$have_hermes" == "0" ]]; then require_command git; fi
+  if [[ "$have_hermes" == "0" ]]; then
+    assert_managed_directory_destination "$uv_environment"
+    if [[ -x "$uv_environment/bin/uv" ]]; then
+      uv_output="$("$uv_environment/bin/uv" --version 2>/dev/null || true)"
+      version_output_matches "$uv_output" "$UV_VERSION" ||
+        fail "replacement required: managed uv does not report $UV_VERSION"
+    fi
+    assert_destination_parent_safe "$hermes_source"
+    assert_managed_link_destination \
+      "$HOME/.local/bin/hermes" "$hermes_source/.venv/bin/hermes"
+  fi
+  if [[ "$have_hermes" == "0" && ( -e "$hermes_source" || -L "$hermes_source" ) ]]; then
+    [[ -d "$hermes_source/.git" && ! -L "$hermes_source" ]] ||
+      fail "replacement required: unmanaged Hermes source at $hermes_source"
+    hermes_origin="$(git -C "$hermes_source" remote get-url origin 2>/dev/null || true)"
+    hermes_checkout="$(git -C "$hermes_source" rev-parse HEAD 2>/dev/null || true)"
+    [[ "$hermes_origin" == "$HERMES_REPOSITORY" && "$hermes_checkout" == "$HERMES_COMMIT" ]] ||
+      fail "replacement required: Hermes checkout does not match the pinned source"
+  fi
+  assert_destination_parent_safe "$HOME/.config/herdr/remote-profile.sh"
+  [[ ! -L "$HOME/.config/herdr/remote-profile.sh" &&
+     ( ! -e "$HOME/.config/herdr/remote-profile.sh" || -f "$HOME/.config/herdr/remote-profile.sh" ) ]] ||
+    fail "replacement required: unrelated remote profile destination"
+  assert_destination_parent_safe "$HOME/.profile"
+  [[ ! -L "$HOME/.profile" && ( ! -e "$HOME/.profile" || -f "$HOME/.profile" ) ]] ||
+    fail "replacement required: unrelated login profile"
+  assert_destination_parent_safe "$HOME/.cache/herdr-cli-provision.placeholder"
+
+  # Stage and authenticate every static input before any harness binary lands.
+  if [[ "$have_omp" == "0" || "$have_opencode" == "0" ||
+        "$have_dcode" == "0" || "$have_hermes" == "0" ]]; then
+    for command in curl sha256sum; do require_command "$command"; done
+  fi
+  if [[ "$have_opencode" == "0" ]]; then require_command tar; fi
+  if [[ "$have_dcode" == "0" || "$have_hermes" == "0" ||
+        "$have_claude" == "0" || "$have_codex" == "0" || "$have_pi" == "0" ]]; then
+    require_command python3
+  fi
+  if [[ "$have_claude" == "0" || "$have_codex" == "0" || "$have_pi" == "0" ]]; then
+    require_command npm
+  fi
+  if [[ "$have_hermes" == "0" ]]; then
+    require_command git
+    require_command mv
+  fi
+
+  mkdir -p "$HOME/.cache"
   REMOTE_INSTALL_STAGE="$(mktemp -d "$HOME/.cache/herdr-cli-provision.XXXXXX")"
   [[ "$REMOTE_INSTALL_STAGE" == "$HOME/.cache/herdr-cli-provision."* ]] ||
     fail "unsafe staging path"
@@ -337,12 +534,9 @@ remote_main() {
   if [[ "$have_omp" == "0" ]]; then
     download_verified_sha256 omp "$OMP_URL" "$OMP_SHA256" "$stage/omp"
     verify_staged_version omp "$OMP_VERSION" "$stage/omp"
-    install -m 0755 "$stage/omp" "$HOME/.local/bin/omp"
-    printf 'INSTALLED omp %s\n' "$OMP_VERSION"
   fi
 
   if [[ "$have_opencode" == "0" ]]; then
-    require_command tar
     download_verified_sha256 opencode "$OPENCODE_URL" "$OPENCODE_SHA256" "$stage/opencode.tar.gz"
     archive_entries="$(tar -tzf "$stage/opencode.tar.gz")"
     [[ "$archive_entries" == "opencode" || "$archive_entries" == "./opencode" ]] ||
@@ -350,14 +544,44 @@ remote_main() {
     tar -xzf "$stage/opencode.tar.gz" -C "$stage"
     [[ -f "$stage/opencode" ]] || fail "opencode archive is missing its executable"
     verify_staged_version opencode "$OPENCODE_VERSION" "$stage/opencode"
-    install -m 0755 "$stage/opencode" "$HOME/.local/bin/opencode"
-    printf 'INSTALLED opencode %s\n' "$OPENCODE_VERSION"
   fi
 
   if [[ "$have_dcode" == "0" ]]; then
-    local dcode_environment="$HOME/.local/share/herdr-clis/dcode-$DCODE_VERSION"
-    require_command python3
     download_verified_sha256 dcode "$DCODE_URL" "$DCODE_SHA256" "$stage/deepagents-code.whl"
+  fi
+  [[ "$have_claude" == "1" ]] ||
+    stage_npm_runtime "$CLAUDE_PACKAGE" "$CLAUDE_INTEGRITY" "$stage" claude_archive
+  [[ "$have_codex" == "1" ]] ||
+    stage_npm_runtime "$CODEX_PACKAGE" "$CODEX_INTEGRITY" "$stage" codex_archive
+  [[ "$have_pi" == "1" ]] ||
+    stage_npm_runtime "$PI_PACKAGE" "$PI_INTEGRITY" "$stage" pi_archive
+  if [[ "$have_hermes" == "0" ]]; then
+    download_verified_sha256 uv "$UV_URL" "$UV_SHA256" "$stage/uv.whl"
+    if [[ ! -e "$hermes_source" ]]; then
+      stage_hermes_checkout "$stage"
+    fi
+  fi
+  if [[ "$have_dcode" == "0" || "$have_hermes" == "0" ]]; then
+    python3 -m venv "$stage/python-venv-probe" ||
+      fail "python3 venv prerequisite is unavailable"
+    [[ -x "$stage/python-venv-probe/bin/python" &&
+       -x "$stage/python-venv-probe/bin/pip" ]] ||
+      fail "python3 venv prerequisite did not provide pip"
+    rm -rf -- "$stage/python-venv-probe"
+  fi
+
+  INSTALL_TRANSACTION_ACTIVE=1
+  mkdir -p "$HOME/.local/bin" "$HOME/.local/share/herdr-clis" "$HOME/.config/herdr"
+
+  if [[ "$have_omp" == "0" ]]; then
+    install -m 0755 "$stage/omp" "$HOME/.local/bin/omp"
+    printf 'INSTALLED omp %s\n' "$OMP_VERSION"
+  fi
+  if [[ "$have_opencode" == "0" ]]; then
+    install -m 0755 "$stage/opencode" "$HOME/.local/bin/opencode"
+    printf 'INSTALLED opencode %s\n' "$OPENCODE_VERSION"
+  fi
+  if [[ "$have_dcode" == "0" ]]; then
     prepare_managed_directory "$dcode_environment"
     python3 -m venv "$dcode_environment"
     : > "$dcode_environment/.herdr-vps-managed"
@@ -378,18 +602,13 @@ remote_main() {
     printf 'INSTALLED dcode %s\n' "$DCODE_VERSION"
   fi
 
-  require_command npm
-  [[ "$have_claude" == "1" ]] || verify_npm_integrity "$CLAUDE_PACKAGE" "$CLAUDE_INTEGRITY"
-  [[ "$have_codex" == "1" ]] || verify_npm_integrity "$CODEX_PACKAGE" "$CODEX_INTEGRITY"
-  [[ "$have_pi" == "1" ]] || verify_npm_integrity "$PI_PACKAGE" "$PI_INTEGRITY"
-  [[ "$have_claude" == "1" ]] || install_npm_runtime claude "$CLAUDE_VERSION" claude "$CLAUDE_PACKAGE"
-  [[ "$have_codex" == "1" ]] || install_npm_runtime codex "$CODEX_VERSION" codex "$CODEX_PACKAGE"
-  [[ "$have_pi" == "1" ]] || install_npm_runtime pi "$PI_VERSION" pi "$PI_PACKAGE"
+  [[ "$have_claude" == "1" ]] || install_npm_runtime claude "$CLAUDE_VERSION" claude "$claude_archive"
+  [[ "$have_codex" == "1" ]] || install_npm_runtime codex "$CODEX_VERSION" codex "$codex_archive"
+  [[ "$have_pi" == "1" ]] || install_npm_runtime pi "$PI_VERSION" pi "$pi_archive"
 
   if [[ "$have_hermes" == "0" ]]; then
-    install_hermes "$stage"
+    install_hermes "$stage" "$stage/uv.whl"
   fi
-
   install -m 0644 "$remote_profile" "$HOME/.config/herdr/remote-profile.sh"
   local login_profile="$HOME/.profile"
   # HOME must expand when the login profile is sourced.
@@ -404,6 +623,7 @@ remote_main() {
   if [[ ! -x "$HOME/.local/bin/glm" ]]; then
     echo "INCOMPLETE glm: run scripts/sync-herdr-vps-harness.sh"
   fi
+  INSTALL_TRANSACTION_ACTIVE=0
 }
 
 cleanup_remote_stage() {
