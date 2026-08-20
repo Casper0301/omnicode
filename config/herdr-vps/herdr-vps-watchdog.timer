@@ -1,0 +1,12 @@
+[Unit]
+Description=Sample the Herdr dev session for leaking child processes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Persistent=true
+Unit=herdr-vps-watchdog.service
+
+[Install]
+WantedBy=timers.target

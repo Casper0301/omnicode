@@ -12,12 +12,131 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 WATCHDOG = REPO / "bin" / "herdr-vps-watchdog"
+WRAPPER = REPO / "bin" / "herdr-vps"
+HERDR_SERVICE = REPO / "config" / "herdr-vps" / "herdr-dev.service"
+WATCHDOG_SERVICE = REPO / "config" / "herdr-vps" / "herdr-vps-watchdog.service"
+WATCHDOG_TIMER = REPO / "config" / "herdr-vps" / "herdr-vps-watchdog.timer"
+PROVISIONER = REPO / "scripts" / "provision-herdr-vps.sh"
+REMOTE_CONFIG = REPO / "config" / "herdr-vps" / "config.toml"
+APPLY = REPO / "scripts" / "apply.sh"
+PULL = REPO / "scripts" / "pull.sh"
 GIB = 1024 ** 3
 MIB = 1024 ** 2
 WATCHDOG_LOADER = SourceFileLoader("herdr_vps_watchdog", str(WATCHDOG))
 WATCHDOG_SPEC = importlib.util.spec_from_loader("herdr_vps_watchdog", WATCHDOG_LOADER)
 watchdog = importlib.util.module_from_spec(WATCHDOG_SPEC)
 WATCHDOG_LOADER.exec_module(watchdog)
+
+
+class HerdrVpsProvisioningTests(unittest.TestCase):
+    def write_command(self, directory, name, body):
+        command = directory / name
+        command.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")
+        command.chmod(0o755)
+
+    def test_local_wrapper_attaches_to_dev_session_on_configured_vps(self):
+        wrapper = WRAPPER.read_text(encoding="utf-8")
+
+        self.assertIn("herdr --remote caspers_vps --session dev", wrapper)
+
+    def test_user_service_runs_named_headless_server(self):
+        service = HERDR_SERVICE.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "ExecStart=/home/user/.local/bin/herdr --session dev server", service
+        )
+
+    def test_user_units_do_not_impose_hard_resource_caps(self):
+        for unit_path in (HERDR_SERVICE, WATCHDOG_SERVICE, WATCHDOG_TIMER):
+            with self.subTest(unit=unit_path.name):
+                unit = unit_path.read_text(encoding="utf-8")
+                self.assertNotRegex(unit, r"(?m)^\s*(MemoryMax|MemoryHigh|CPUQuota)\s*=")
+
+    def test_provisioner_requires_release_digest_before_remote_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake_bin = Path(directory)
+            calls = fake_bin / "remote-calls"
+            self.write_command(fake_bin, "herdr", "printf 'herdr 0.8.2\\n'\n")
+            self.write_command(
+                fake_bin,
+                "gh",
+                "printf 'https://github.com/herdrdev/herdr/releases/download/"
+                "v0.8.2/herdr-linux-x86_64\\t\\n'\n",
+            )
+            for command in ("ssh", "scp"):
+                self.write_command(
+                    fake_bin,
+                    command,
+                    f"printf '{command}\\n' >> \"$CALL_LOG\"\nexit 99\n",
+                )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": str(fake_bin) + os.pathsep + env["PATH"],
+                    "CALL_LOG": str(calls),
+                }
+            )
+
+            result = subprocess.run(
+                [str(PROVISIONER)],
+                cwd=REPO,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(calls.exists(), result.stderr)
+
+    def test_remote_config_is_accepted_by_installed_herdr(self):
+        env = os.environ.copy()
+        env["HERDR_CONFIG_PATH"] = str(REMOTE_CONFIG)
+
+        result = subprocess.run(
+            ["herdr", "config", "check"],
+            cwd=REPO,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_provisioner_rejects_a_non_linux_x86_64_remote(self):
+        provisioner = PROVISIONER.read_text(encoding="utf-8")
+
+        self.assertIn('[[ "$(uname -s)" == "Linux" ]]', provisioner)
+        self.assertIn('[[ "$(uname -m)" == "x86_64" ]]', provisioner)
+
+    def test_repo_sync_manages_local_attach_wrapper(self):
+        apply = APPLY.read_text(encoding="utf-8")
+        pull = PULL.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'install -m 755 "$REPO/bin/herdr-vps"        "$H/.local/bin/herdr-vps"',
+            apply,
+        )
+        self.assertIn(
+            'cp "$H/.local/bin/herdr-vps" "$REPO/bin/herdr-vps"', pull
+        )
+
+    def test_provisioner_uses_privilege_only_for_linger(self):
+        provisioner = PROVISIONER.read_text(encoding="utf-8")
+        privileged_commands = [
+            line.strip()
+            for line in provisioner.splitlines()
+            if line.strip().startswith("/usr/bin/sudo")
+        ]
+
+        self.assertEqual(
+            privileged_commands,
+            [
+                "/usr/bin/sudo -n -u admin /usr/bin/sudo -n "
+                "/usr/bin/loginctl enable-linger user"
+            ],
+        )
 
 
 class HerdrVpsWatchdogTests(unittest.TestCase):

@@ -1,0 +1,9 @@
+[Unit]
+Description=Herdr dev session leak watchdog
+After=herdr-dev.service
+Requisite=herdr-dev.service
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/user/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/user/.local/bin/herdr-vps-watchdog

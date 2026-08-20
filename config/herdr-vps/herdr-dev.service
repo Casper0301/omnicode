@@ -1,0 +1,15 @@
+[Unit]
+Description=Herdr dev session server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=/home/user/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HERDR_CONFIG_PATH=/home/user/.config/herdr/config.toml
+ExecStart=/home/user/.local/bin/herdr --session dev server
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

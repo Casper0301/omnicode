@@ -35,6 +35,7 @@ install -m 755 "$REPO/bin/lane-pick"        "$H/.local/bin/lane-pick"
 install -m 755 "$REPO/bin/goal"             "$H/.local/bin/goal"
 install -m 755 "$REPO/bin/uib"              "$H/.local/bin/uib"
 install -m 755 "$REPO/bin/omnicode-doctor"  "$H/.local/bin/omnicode-doctor"
+install -m 755 "$REPO/bin/herdr-vps"        "$H/.local/bin/herdr-vps"
 
 mkdir -p "$H/.uib" "$H/.claude/omnicode" "$H/.claude/agents" "$H/.claude/workflows" "$CLAUDE_SKILLS" "$H/.omnicode"
 cp "$REPO/uib/uib.mjs"      "$H/.uib/uib.mjs"

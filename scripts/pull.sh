@@ -19,6 +19,10 @@ fi
 if [ "$H/.local/bin/omnicode-doctor" -nt "$REPO/bin/omnicode-doctor" ] 2>/dev/null; then
   cp "$H/.local/bin/omnicode-doctor" "$REPO/bin/omnicode-doctor"
 fi
+# herdr-vps is authored in this repo; only pull back an explicitly newer live edit.
+if [ "$H/.local/bin/herdr-vps" -nt "$REPO/bin/herdr-vps" ] 2>/dev/null; then
+  cp "$H/.local/bin/herdr-vps" "$REPO/bin/herdr-vps"
+fi
 
 # uib implementation
 cp "$H/.uib/uib.mjs"       "$REPO/uib/uib.mjs"
