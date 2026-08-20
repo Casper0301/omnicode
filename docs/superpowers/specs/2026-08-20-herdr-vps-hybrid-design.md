@@ -28,7 +28,13 @@ Termination is SIGTERM followed by SIGKILL only if the exact PID/start-time iden
 
 Provisioning downloads the Linux x86_64 asset matching the local Herdr version and verifies the SHA-256 digest published by the official GitHub release before installation. It installs the user service, watchdog, timer, and a minimal remote config. The remote config enables agent resume, pane history, external worktrees, and Kitty graphics without copying Mac-specific plugin commands.
 
-The first pilot installs Codex only because usable Codex auth state already exists on the VPS. Claude, Pi, dcode, Grok, and other integrations are not declared migrated until their CLI, auth, hook, and resume behavior pass independently. Secrets are never copied by the provisioner.
+The remote harness installs Linux x86_64 builds of the active model and agent CLIs: Claude Code, Codex, Pi, OMP, dcode, Grok, OpenCode, Hermes, Cursor Agent, and the GLM/ZAI wrapper. Versions are pinned to the local Mac versions where the vendor publishes a reproducible build. Every downloaded native artifact requires an official SHA-256 digest before persistent installation.
+
+The user explicitly authorizes a one-way copy of file-backed model OAuth/token state from the Mac to this VPS. Auth transfer is allowlisted, travels only through the existing SSH route, never enters Git or command output, and is installed mode `0600`. Portable auth includes Codex, Pi, dcode ChatGPT, Grok, OpenCode, GitHub CLI, and ZAI. Claude Code, Cursor Agent, OMP broker state, and any other device-bound credential use a fresh device/browser login on the VPS rather than copying machine-bound state. Hermes `.env`, generic provider-key pools, runtime broker tokens, session databases, transcript history, caches, Mac binaries, and MCP repositories are excluded.
+
+The Mac's durable memory and shared skill library are copied one-way, then the VPS recreates its own local symlinks from Claude, Codex, Grok, Cursor, and the shared agent root to `/home/user/.ai-memory/MEMORY.md` and `/home/user/.claude/skills`. Cross-machine symlinks are impossible and are never attempted. The sync does not use `--delete`, does not copy live Herdr state/sockets, and refuses to replace an unrelated regular file at a required symlink target.
+
+Each CLI is declared migrated only after its version, authentication, selected flagship model, Herdr integration hook, and a token-light status probe pass independently. A failed provider does not block the remote shell or other verified providers, but it remains explicitly incomplete.
 
 ## Repository and browser boundaries
 
@@ -46,5 +52,9 @@ The current local session stays running. The first remote workspace is an isolat
 - The systemd service has no CPU or memory cap.
 - Watchdog tests prove sustained-growth gating, cgroup isolation, main-PID protection, and PID-reuse protection.
 - The remote watchdog timer is active and a dry run reports healthy without killing a process.
-- A remote pilot workspace can run a shell and Codex authentication probe.
+- The active CLI/model versions are installed and every portable auth status probe succeeds without printing tokens.
+- Device-bound Claude Code, Cursor Agent, and OMP credentials are re-established through their supported login flows.
+- Shared memory/skills exist on the VPS and the remote harness symlinks resolve inside `/home/user`.
+- Herdr integrations report installed for every verified remote CLI.
+- A remote pilot workspace can run a shell and a token-light model probe through each active Omnicode lane.
 - The existing local Herdr session and its seventeen panes remain untouched.

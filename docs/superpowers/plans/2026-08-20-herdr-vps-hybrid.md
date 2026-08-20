@@ -4,9 +4,9 @@
 
 **Goal:** Run new Herdr coding-agent workloads on Casper's VPS while the Mac remains the thin UI client and a targeted watchdog removes sustained memory leaks.
 
-**Architecture:** A local wrapper attaches to a named remote Herdr session. A repository-owned provisioner installs a version-matched, checksum-verified Linux binary plus a systemd user service and timer. The server has no resource cap; the watchdog operates only inside the service cgroup and fails closed.
+**Architecture:** A local wrapper attaches to a named remote Herdr session. Repository-owned provisioners install version-matched, checksum-verified Linux runtimes plus a systemd user service and timer; an allowlisted one-way SSH sync transfers portable auth, memory, skills, and harness configuration. The server has no resource cap; the watchdog operates only inside the service cgroup and fails closed.
 
-**Tech Stack:** Bash, Python 3 standard library, systemd user services, SSH, Herdr 0.8.2, unittest.
+**Tech Stack:** Bash, Python 3 standard library, systemd user services, SSH/rsync, Herdr 0.8.2, vendor Linux x86_64 CLIs, unittest.
 
 **Spec:** `docs/superpowers/specs/2026-08-20-herdr-vps-hybrid-design.md`
 
@@ -14,7 +14,7 @@
 
 - Do not stop, restart, close, or modify the existing local Herdr session.
 - Do not configure `MemoryMax`, `MemoryHigh`, `CPUQuota`, or an equivalent hard resource cap on the VPS.
-- Never inspect, print, copy, or commit credential contents.
+- Never inspect, print, or commit credential contents. The user explicitly authorizes allowlisted file-backed auth transfer over SSH to this VPS, installed mode `0600`.
 - Never kill a process outside the `herdr-dev.service` cgroup or the Herdr server main PID.
 - Keep browser CDP endpoints on loopback; do not expose them publicly.
 - Use the `user` account for remote development; do not move production services from `admin`.
@@ -102,7 +102,51 @@ Expected: all pass.
 
 Run: `git add bin/herdr-vps scripts/provision-herdr-vps.sh config/herdr-vps scripts/apply.sh scripts/pull.sh tests/test_herdr_vps.py && git commit -m "feat: provision remote Herdr runtime"`
 
-### Task 3: Provision and validate the remote pilot
+### Task 3: Full Linux CLI and authenticated harness sync
+
+**Files:**
+- Create: `scripts/provision-herdr-vps-clis.sh`
+- Create: `scripts/sync-herdr-vps-harness.sh`
+- Create: `config/herdr-vps/remote-profile.sh`
+- Create: `tests/test_herdr_vps_harness.py`
+
+**Interfaces:**
+- Consumes: official vendor installers/releases, local CLI versions, allowlisted auth/config paths, SSH alias `caspers_vps`.
+- Produces: idempotent Linux CLI installer and one-way harness/auth/memory/skills sync without token output.
+
+- [ ] **Step 1: Write failing safety and parity tests**
+
+Assert exact version pins for Claude Code 2.1.237, Codex 0.148.0, Pi 0.84.2, OMP 17.3.0, dcode 0.1.56, Grok 1.0.5, OpenCode 1.17.13, Hermes 0.20.4's immutable release commit, and the current pinned Cursor Linux artifact. Assert official digest verification for native assets, no `.env`/session DB/broker/MCP/cache paths, no `rsync --delete`, mode `0600` for auth destinations, and fail-closed symlink creation.
+
+- [ ] **Step 2: Verify tests fail**
+
+Run: `python3 -m unittest tests.test_herdr_vps_harness -v`
+
+Expected: FAIL because the scripts and remote profile do not exist.
+
+- [ ] **Step 3: Implement the Linux CLI installer**
+
+Install under `/home/user/.local` only. Use vendor packages or checksum-verified official Linux x86_64 assets, persist `~/.local/bin` on PATH, and make no auth changes. A matching version is a no-op; a mismatched active executable fails with a clear replacement-required error instead of silently changing live tooling.
+
+- [ ] **Step 4: Implement the curated harness sync**
+
+Transfer only the spec's portable auth/config allowlist, durable memory, shared skills, Omnicode agents/config, and required wrappers. Auth files travel individually and are set to `0600`; public trees retain executable modes. Exclude every `.env`, cache, session/history database, runtime broker token, Mac binary, live Herdr state, and MCP repository. Recreate Linux-local memory and skill symlinks only when the destination is absent or already the expected symlink.
+
+- [ ] **Step 5: Verify implementation**
+
+Run: `python3 -m unittest tests.test_herdr_vps_harness -v`
+
+Run: `bash -n scripts/provision-herdr-vps-clis.sh scripts/sync-herdr-vps-harness.sh`
+
+Run: `shellcheck scripts/provision-herdr-vps-clis.sh scripts/sync-herdr-vps-harness.sh`
+
+Expected: all pass with no token or secret output.
+
+- [ ] **Step 6: Commit**
+
+Run: `git add scripts/provision-herdr-vps-clis.sh scripts/sync-herdr-vps-harness.sh config/herdr-vps/remote-profile.sh tests/test_herdr_vps_harness.py docs/superpowers && git commit -m "feat: mirror authenticated harness to Herdr VPS"`
+
+### Task 4: Provision and validate the remote pilot
 
 **Files:**
 - Modify remotely: `/home/user/.local/bin/herdr`
@@ -111,10 +155,12 @@ Run: `git add bin/herdr-vps scripts/provision-herdr-vps.sh config/herdr-vps scri
 - Modify remotely: `/home/user/.config/systemd/user/herdr-dev.service`
 - Modify remotely: `/home/user/.config/systemd/user/herdr-vps-watchdog.service`
 - Modify remotely: `/home/user/.config/systemd/user/herdr-vps-watchdog.timer`
+- Modify remotely: `/home/user/.local/bin/{claude,codex,pi,omp,dcode,grok,opencode,hermes,agent,glm}`
+- Modify remotely: allowlisted auth/config, `/home/user/.ai-memory`, `/home/user/.claude/skills`, and harness symlinks
 
 **Interfaces:**
-- Consumes: Task 2 provisioner and the existing SSH route.
-- Produces: persistent compatible remote Herdr server with active monitoring.
+- Consumes: Task 2 Herdr provisioner, Task 3 CLI/sync scripts, and the existing SSH route.
+- Produces: persistent compatible remote Herdr server with active monitoring and the authenticated model harness.
 
 - [ ] **Step 1: Run the provisioner**
 
@@ -132,15 +178,19 @@ Expected: infinity for every property.
 
 Run the watchdog with `HERDR_WATCHDOG_DRY_RUN=1`, inspect the unit control group, and verify the Herdr main PID is excluded from candidates.
 
-- [ ] **Step 4: Install and validate Codex without exposing auth**
+- [ ] **Step 4: Install and sync the complete harness without exposing auth**
 
-Install the current Codex CLI for the `user` account, then run `codex login status`. Stop if the existing auth file is rejected; do not print or replace it.
+Run `scripts/provision-herdr-vps-clis.sh`, then `scripts/sync-herdr-vps-harness.sh`. Verify versions and portable auth with status-only commands that never print token values. Complete supported device/browser login flows for Claude Code, Cursor Agent, and OMP if their existing device state is unavailable remotely.
 
-- [ ] **Step 5: Create an isolated pilot repository**
+- [ ] **Step 5: Install and verify Herdr integrations**
 
-Clone `Casper0301/omnicode` into `/home/user/Projects/omnicode` only if GitHub auth succeeds. Otherwise create `/home/user/Projects/herdr-pilot` with no customer or production data and validate a shell there.
+Install integrations for every available remote CLI, including the custom dcode hook bridge, then run `herdr --session dev integration status`. Verify native session references and agent state transitions without prompting a real customer-facing or production action.
 
-### Task 4: End-to-end verification and delivery
+- [ ] **Step 6: Clone and validate an isolated pilot repository**
+
+Verify GitHub CLI auth, clone `Casper0301/omnicode` into `/home/user/Projects/omnicode`, and run token-light probes through the configured model lanes. If any provider fails, record it as incomplete and continue validating the independent providers; never downgrade or silently substitute its configured model.
+
+### Task 5: End-to-end verification and delivery
 
 **Files:**
 - Modify: `README.md`
