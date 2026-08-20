@@ -1,9 +1,12 @@
+import importlib.util
+from importlib.machinery import SourceFileLoader
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -11,6 +14,10 @@ REPO = Path(__file__).resolve().parents[1]
 WATCHDOG = REPO / "bin" / "herdr-vps-watchdog"
 GIB = 1024 ** 3
 MIB = 1024 ** 2
+WATCHDOG_LOADER = SourceFileLoader("herdr_vps_watchdog", str(WATCHDOG))
+WATCHDOG_SPEC = importlib.util.spec_from_loader("herdr_vps_watchdog", WATCHDOG_LOADER)
+watchdog = importlib.util.module_from_spec(WATCHDOG_SPEC)
+WATCHDOG_LOADER.exec_module(watchdog)
 
 
 class HerdrVpsWatchdogTests(unittest.TestCase):
@@ -80,6 +87,23 @@ class HerdrVpsWatchdogTests(unittest.TestCase):
         if not action_file.exists():
             return []
         return [json.loads(line) for line in action_file.read_text(encoding="utf-8").splitlines()]
+
+    def live_terminate(self, *, metadata=None, opener=None, sender=None, sleeper=None, logger=None):
+        self.add_process(101, start_time=1000, rss=7 * GIB)
+        return watchdog.terminate(
+            self.proc,
+            {"pid": 101, "start_time": "1000", "rss": 7 * GIB, "command": "agent"},
+            self.state,
+            "sustained_growth",
+            self.cgroup,
+            "/user.slice/herdr-dev.service",
+            metadata or (lambda: ("/user.slice/herdr-dev.service", 1)),
+            pidfd_opener=opener,
+            pidfd_sender=sender,
+            pidfd_closer=lambda _pidfd: None,
+            sleeper=sleeper or (lambda _seconds: None),
+            action_logger=logger,
+        )
 
     def test_healthy_process_exits_zero_without_action(self):
         self.add_process(101, start_time=1000, rss=512 * MIB)
@@ -161,6 +185,133 @@ class HerdrVpsWatchdogTests(unittest.TestCase):
         self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0]["pid"], 101)
         self.assertEqual(actions[0]["reason"], "memory_pressure")
+
+    def test_incomplete_descendant_cgroup_metadata_fails_closed(self):
+        self.add_process(101, start_time=1000, rss=7 * GIB)
+        (self.cgroup / "user.slice" / "herdr-dev.service" / "incomplete.scope").mkdir()
+
+        result = self.run_watchdog()
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.actions(), [])
+
+    def test_cgroup_walk_error_fails_closed(self):
+        service = self.cgroup / "user.slice" / "herdr-dev.service"
+        (service / "cgroup.procs").touch()
+
+        with mock.patch.object(watchdog.os, "walk", side_effect=OSError("read failed")):
+            with self.assertRaises(ValueError):
+                watchdog.cgroup_pids(service)
+
+    def test_live_signal_uses_pidfd_and_logs_intent_before_outcome(self):
+        signals = []
+
+        self.live_terminate(
+            opener=lambda _pid: 42,
+            sender=lambda _pidfd, sig: signals.append(sig),
+        )
+
+        self.assertEqual(signals, [watchdog.signal.SIGTERM, watchdog.signal.SIGKILL])
+        actions = self.actions()
+        self.assertEqual([action["action"] for action in actions], [
+            "sigterm_intent", "sigterm_sent", "sigkill_intent", "sigkill_sent"
+        ])
+
+    def test_live_signal_stops_when_pid_identity_changes_after_pidfd_open(self):
+        signals = []
+
+        def reuse_pid(_pid):
+            self.add_process(101, start_time=2000, rss=7 * GIB)
+            return 42
+
+        self.live_terminate(opener=reuse_pid, sender=lambda _pidfd, sig: signals.append(sig))
+
+        self.assertEqual(signals, [])
+        self.assertEqual(self.actions()[0]["action"], "identity_changed")
+
+    def test_live_signal_stops_when_process_leaves_cgroup_before_signal(self):
+        signals = []
+
+        def remove_from_cgroup(_pid):
+            (self.cgroup / "user.slice" / "herdr-dev.service" / "cgroup.procs").write_text("")
+            return 42
+
+        self.live_terminate(opener=remove_from_cgroup, sender=lambda _pidfd, sig: signals.append(sig))
+
+        self.assertEqual(signals, [])
+        self.assertEqual(self.actions()[0]["action"], "cgroup_membership_changed")
+
+    def test_live_signal_stops_when_current_main_pid_changes_before_signal(self):
+        signals = []
+        metadata = lambda: ("/user.slice/herdr-dev.service", 101)
+
+        self.live_terminate(metadata=metadata, opener=lambda _pid: 42,
+                            sender=lambda _pidfd, sig: signals.append(sig))
+
+        self.assertEqual(signals, [])
+        self.assertEqual(self.actions()[0]["action"], "main_pid_changed")
+
+    def test_live_signal_revalidates_pid_identity_before_sigkill(self):
+        signals = []
+
+        def reuse_pid_before_kill(_seconds):
+            self.add_process(101, start_time=2000, rss=7 * GIB)
+
+        self.live_terminate(opener=lambda _pid: 42,
+                            sender=lambda _pidfd, sig: signals.append(sig),
+                            sleeper=reuse_pid_before_kill)
+
+        self.assertEqual(signals, [watchdog.signal.SIGTERM])
+        self.assertEqual(self.actions()[-1]["action"], "identity_changed")
+
+    def test_live_signal_revalidates_cgroup_membership_before_sigkill(self):
+        signals = []
+
+        def leave_cgroup_before_kill(_seconds):
+            (self.cgroup / "user.slice" / "herdr-dev.service" / "cgroup.procs").write_text("")
+
+        self.live_terminate(opener=lambda _pid: 42,
+                            sender=lambda _pidfd, sig: signals.append(sig),
+                            sleeper=leave_cgroup_before_kill)
+
+        self.assertEqual(signals, [watchdog.signal.SIGTERM])
+        self.assertEqual(self.actions()[-1]["action"], "cgroup_membership_changed")
+
+    def test_live_signal_revalidates_main_pid_before_sigkill(self):
+        signals = []
+        main_pid = [1]
+
+        def become_main_before_kill(_seconds):
+            main_pid[0] = 101
+
+        self.live_terminate(metadata=lambda: ("/user.slice/herdr-dev.service", main_pid[0]),
+                            opener=lambda _pid: 42,
+                            sender=lambda _pidfd, sig: signals.append(sig),
+                            sleeper=become_main_before_kill)
+
+        self.assertEqual(signals, [watchdog.signal.SIGTERM])
+        self.assertEqual(self.actions()[-1]["action"], "main_pid_changed")
+
+    def test_live_signal_fails_closed_without_pidfd_support(self):
+        signals = []
+
+        self.live_terminate(
+            opener=lambda _pid: (_ for _ in ()).throw(ValueError("pidfd unavailable")),
+            sender=lambda _pidfd, sig: signals.append(sig),
+        )
+
+        self.assertEqual(signals, [])
+        self.assertEqual(self.actions()[0]["action"], "pidfd_unavailable")
+
+    def test_live_signal_fails_closed_when_intent_logging_fails(self):
+        signals = []
+
+        with self.assertRaises(OSError):
+            self.live_terminate(opener=lambda _pid: 42,
+                                sender=lambda _pidfd, sig: signals.append(sig),
+                                logger=lambda _state, _action: (_ for _ in ()).throw(OSError("disk full")))
+
+        self.assertEqual(signals, [])
 
 
 if __name__ == "__main__":

@@ -120,19 +120,20 @@ def cgroup_pids(path):
     pids = set()
     # cgroup v2 processes can be assigned to descendant cgroups.  Reading each
     # cgroup.procs is deliberate: a parent cgroup.procs does not include them.
-    for directory, _, filenames in os.walk(path):
-        if "cgroup.procs" not in filenames:
-            continue
-        proc_file = Path(directory) / "cgroup.procs"
-        for line in proc_file.read_text(encoding="utf-8").splitlines():
-            if not line.isdigit() or int(line) <= 0:
-                raise ValueError("invalid cgroup pid")
-            pids.add(int(line))
-    if not pids:
-        # An empty cgroup is healthy, but a missing root cgroup.procs is not
-        # sufficient metadata to make a kill decision.
-        if not (path / "cgroup.procs").is_file():
-            raise ValueError("missing cgroup.procs")
+    try:
+        def raise_walk_error(error):
+            raise error
+
+        for directory, _, filenames in os.walk(path, onerror=raise_walk_error):
+            if "cgroup.procs" not in filenames:
+                raise ValueError("missing cgroup.procs")
+            proc_file = Path(directory) / "cgroup.procs"
+            for line in proc_file.read_text(encoding="utf-8").splitlines():
+                if not line.isdigit() or int(line) <= 0:
+                    raise ValueError("invalid cgroup pid")
+                pids.add(int(line))
+    except OSError as error:
+        raise ValueError("unreadable cgroup metadata") from error
     return pids
 
 
@@ -173,6 +174,8 @@ def append_action(state_dir, action):
     line = json.dumps(action, sort_keys=True, separators=(",", ":"))
     with (state_dir / ACTION_FILE).open("a", encoding="utf-8") as file:
         file.write(line + "\n")
+        file.flush()
+        os.fsync(file.fileno())
     # systemd journals standard output, so this is the journal JSON line.
     print(line, flush=True)
 
@@ -220,26 +223,78 @@ def same_identity_alive(proc_root, process):
     return str(start_time) == process["start_time"]
 
 
-def terminate(proc_root, process, state_dir, reason):
+def signal_functions(pidfd_opener=None, pidfd_sender=None, pidfd_closer=None):
+    """Return Linux pidfd primitives, or fail before any signal can be sent."""
+    opener = pidfd_opener if pidfd_opener is not None else getattr(os, "pidfd_open", None)
+    sender = pidfd_sender if pidfd_sender is not None else getattr(signal, "pidfd_send_signal", None)
+    closer = pidfd_closer if pidfd_closer is not None else os.close
+    if not callable(opener) or not callable(sender):
+        raise ValueError("pidfd signalling is unavailable")
+    return opener, sender, closer
+
+
+def revalidate_candidate(proc_root, cgroup_root, expected_control_group, process, metadata_reader):
+    """Return a fail-closed reason, or None immediately before a pidfd signal."""
+    if not same_identity_alive(proc_root, process):
+        return "identity_changed"
+    try:
+        control_group, main_pid = metadata_reader()
+    except (OSError, ValueError):
+        return "service_metadata_unreadable"
+    if control_group != expected_control_group:
+        return "control_group_changed"
+    if process["pid"] == main_pid:
+        return "main_pid_changed"
+    try:
+        members = cgroup_pids(cgroup_path(cgroup_root, control_group))
+    except (OSError, ValueError):
+        return "cgroup_metadata_unreadable"
+    if process["pid"] not in members:
+        return "cgroup_membership_changed"
+    return None
+
+
+def terminate(proc_root, process, state_dir, reason, cgroup_root, control_group, metadata_reader,
+              pidfd_opener=None, pidfd_sender=None, pidfd_closer=None, sleeper=time.sleep,
+              action_logger=None):
+    """Signal a still-safe candidate using an identity-bound Linux pidfd."""
     action_base = {"pid": process["pid"], "start_time": process["start_time"],
                    "command": process["command"], "rss": process["rss"], "reason": reason,
                    "timestamp": int(time.time())}
-    if not same_identity_alive(proc_root, process):
-        append_action(state_dir, dict(action_base, action="identity_changed"))
+    logger = action_logger or append_action
+    try:
+        opener, sender, closer = signal_functions(pidfd_opener, pidfd_sender, pidfd_closer)
+        pidfd = opener(process["pid"])
+    except (OSError, ValueError) as error:
+        logger(state_dir, dict(action_base, action="pidfd_unavailable", detail=str(error)))
         return
     try:
-        os.kill(process["pid"], signal.SIGTERM)
-    except ProcessLookupError:
-        append_action(state_dir, dict(action_base, action="already_exited"))
-        return
-    append_action(state_dir, dict(action_base, action="sigterm"))
-    time.sleep(10)
-    if same_identity_alive(proc_root, process):
+        blocked = revalidate_candidate(proc_root, cgroup_root, control_group, process, metadata_reader)
+        if blocked:
+            logger(state_dir, dict(action_base, action=blocked))
+            return
+        # This durable journal/state record is deliberately before delivery.
+        logger(state_dir, dict(action_base, action="sigterm_intent"))
         try:
-            os.kill(process["pid"], signal.SIGKILL)
-            append_action(state_dir, dict(action_base, action="sigkill"))
+            sender(pidfd, signal.SIGTERM)
         except ProcessLookupError:
-            append_action(state_dir, dict(action_base, action="exited_after_sigterm"))
+            logger(state_dir, dict(action_base, action="already_exited"))
+            return
+        logger(state_dir, dict(action_base, action="sigterm_sent"))
+        sleeper(10)
+        blocked = revalidate_candidate(proc_root, cgroup_root, control_group, process, metadata_reader)
+        if blocked:
+            logger(state_dir, dict(action_base, action=blocked))
+            return
+        logger(state_dir, dict(action_base, action="sigkill_intent"))
+        try:
+            sender(pidfd, signal.SIGKILL)
+        except ProcessLookupError:
+            logger(state_dir, dict(action_base, action="exited_after_sigterm"))
+            return
+        logger(state_dir, dict(action_base, action="sigkill_sent"))
+    finally:
+        closer(pidfd)
 
 
 def config_from_environment():
@@ -264,10 +319,12 @@ def run(dry_run):
         raise ValueError("CONTROL_GROUP and MAIN_PID must be set together")
     if configured_control_group is None:
         control_group, main_pid = service_metadata()
+        metadata_reader = service_metadata
     else:
         if not configured_main_pid.isdigit() or int(configured_main_pid) <= 0:
             raise ValueError("invalid MAIN_PID")
         control_group, main_pid = configured_control_group, int(configured_main_pid)
+        metadata_reader = lambda: (control_group, main_pid)
 
     config = config_from_environment()
     if config["samples"] < 1:
@@ -291,12 +348,12 @@ def run(dry_run):
     process, reason = candidate(updated, config)
     if process is None:
         return 0
-    action = {"action": "would_terminate" if dry_run else "selected", "pid": process["pid"],
-              "start_time": process["start_time"], "command": process["command"], "rss": process["rss"],
-              "reason": reason, "timestamp": int(time.time())}
-    append_action(state_dir, action)
-    if not dry_run:
-        terminate(proc_root, process, state_dir, reason)
+    if dry_run:
+        append_action(state_dir, {"action": "would_terminate", "pid": process["pid"],
+                                  "start_time": process["start_time"], "command": process["command"],
+                                  "rss": process["rss"], "reason": reason, "timestamp": int(time.time())})
+    else:
+        terminate(proc_root, process, state_dir, reason, cgroup_root, control_group, metadata_reader)
     return 0
 
 
