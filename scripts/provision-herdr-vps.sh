@@ -61,7 +61,19 @@ asset_sha256="${asset_digest#sha256:}"
 [[ ${#asset_sha256} -eq 64 ]] || fail "GitHub release asset has an invalid SHA-256 digest"
 [[ ! "$asset_sha256" =~ [^0-9a-f] ]] || fail "GitHub release asset has an invalid SHA-256 digest"
 
-# No remote state is touched until the official asset digest is present and valid.
+# Validate the fixed remote identity and platform before any remote mutation or SCP.
+if ! ssh "$SSH_TARGET" bash -s <<'REMOTE_PREFLIGHT'
+set -euo pipefail
+[[ "$(id -un)" == "user" ]]
+[[ "$HOME" == "/home/user" ]]
+[[ "$(uname -s)" == "Linux" ]]
+[[ "$(uname -m)" == "x86_64" ]]
+REMOTE_PREFLIGHT
+then
+  fail "remote identity/platform preflight failed"
+fi
+
+# No remote state is touched until the digest and remote preflight are valid.
 REMOTE_STAGE="$(
   ssh "$SSH_TARGET" \
     'umask 077; mkdir -p /home/user/.cache; mktemp -d /home/user/.cache/herdr-provision.XXXXXX'
@@ -83,6 +95,32 @@ scp \
 ssh "$SSH_TARGET" bash -s -- \
   "$REMOTE_STAGE" "$local_version" "$asset_url" "$asset_sha256" <<'REMOTE_SCRIPT'
 set -euo pipefail
+
+plan_service_action() {
+  local changed_count="$1"
+  local service_active="$2"
+  local timer_active="$3"
+
+  [[ "$changed_count" =~ ^[0-9]+$ ]]
+  [[ "$service_active" == "0" || "$service_active" == "1" ]]
+  [[ "$timer_active" == "0" || "$timer_active" == "1" ]]
+  if [[ "$service_active" == "1" && "$changed_count" -gt 0 ]]; then
+    printf '%s\n' "restart-required"
+  elif [[ "$service_active" == "1" && "$timer_active" == "1" ]]; then
+    printf '%s\n' "keep-running"
+  elif [[ "$service_active" == "1" ]]; then
+    printf '%s\n' "start-timer"
+  else
+    printf '%s\n' "install-and-start"
+  fi
+}
+
+if [[ "${1:-}" == "--decision-test" ]]; then
+  decision="$(plan_service_action "$2" "$3" "$4")"
+  printf '%s\n' "$decision"
+  [[ "$decision" != "restart-required" ]]
+  exit
+fi
 
 stage="$1"
 version="$2"
@@ -110,8 +148,17 @@ trap cleanup EXIT
 [[ ${#asset_sha256} -eq 64 ]] || fail "invalid SHA-256 digest"
 [[ ! "$asset_sha256" =~ [^0-9a-f] ]] || fail "invalid SHA-256 digest"
 
-for command in curl sha256sum install mv systemctl sudo; do
+for command in cmp curl sha256sum install mv stat systemctl sudo; do
   command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
+done
+
+for staged_file in \
+  "$stage/herdr-vps-watchdog" \
+  "$stage/config.toml" \
+  "$stage/herdr-dev.service" \
+  "$stage/herdr-vps-watchdog.service" \
+  "$stage/herdr-vps-watchdog.timer"; do
+  [[ -f "$staged_file" ]] || fail "missing staged file: $staged_file"
 done
 
 download="$stage/herdr-linux-x86_64.download"
@@ -124,6 +171,58 @@ chmod 0755 "$download"
 downloaded_version="$("$download" --version)"
 [[ "$downloaded_version" == "herdr $version" ]] || fail "verified binary reports $downloaded_version"
 
+# This is the sole privileged action: user -> admin -> root for user lingering.
+/usr/bin/sudo -n -u admin /usr/bin/sudo -n /usr/bin/loginctl enable-linger user
+
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+[[ -S "$XDG_RUNTIME_DIR/bus" ]] || fail "user systemd bus is unavailable"
+
+changes=()
+compare_install() {
+  local source="$1"
+  local target="$2"
+  local mode="$3"
+  local label="$4"
+  if [[ ! -f "$target" ]] || ! cmp -s "$source" "$target" ||
+     [[ "$(stat -c '%a' "$target" 2>/dev/null || true)" != "$mode" ]]; then
+    changes+=("$label")
+  fi
+}
+
+compare_install "$download" "$HOME/.local/bin/herdr" 755 "herdr"
+compare_install "$stage/herdr-vps-watchdog" "$HOME/.local/bin/herdr-vps-watchdog" 755 "watchdog"
+compare_install "$stage/config.toml" "$HOME/.config/herdr/config.toml" 644 "config"
+compare_install "$stage/herdr-dev.service" "$HOME/.config/systemd/user/herdr-dev.service" 644 "herdr-dev.service"
+compare_install "$stage/herdr-vps-watchdog.service" "$HOME/.config/systemd/user/herdr-vps-watchdog.service" 644 "watchdog.service"
+compare_install "$stage/herdr-vps-watchdog.timer" "$HOME/.config/systemd/user/herdr-vps-watchdog.timer" 644 "watchdog.timer"
+
+service_active=0
+timer_active=0
+systemctl --user is-active --quiet herdr-dev.service && service_active=1
+systemctl --user is-active --quiet herdr-vps-watchdog.timer && timer_active=1
+action="$(plan_service_action "${#changes[@]}" "$service_active" "$timer_active")"
+
+if [[ "$action" == "restart-required" ]]; then
+  fail "restart required: active herdr-dev.service has changed persistent files (${changes[*]}); stop it explicitly, then rerun provisioning"
+fi
+
+if [[ "$action" == "keep-running" ]]; then
+  systemctl --user enable herdr-dev.service herdr-vps-watchdog.timer
+  [[ "$("$HOME/.local/bin/herdr" --version)" == "herdr $version" ]] || fail "installed version mismatch"
+  echo "Herdr files unchanged; active service left running"
+  exit 0
+fi
+
+if [[ "$action" == "start-timer" ]]; then
+  systemctl --user enable herdr-dev.service herdr-vps-watchdog.timer
+  systemctl --user start herdr-vps-watchdog.timer
+  systemctl --user is-active --quiet herdr-dev.service
+  systemctl --user is-active --quiet herdr-vps-watchdog.timer
+  [[ "$("$HOME/.local/bin/herdr" --version)" == "herdr $version" ]] || fail "installed version mismatch"
+  echo "Herdr files unchanged; active service left running and watchdog timer started"
+  exit 0
+fi
+
 mkdir -p \
   "$HOME/.local/bin" \
   "$HOME/.local/state/herdr-watchdog" \
@@ -131,24 +230,20 @@ mkdir -p \
   "$HOME/.config/systemd/user" \
   "$HOME/Projects/.herdr-worktrees"
 
-# Install the verified binary atomically so a rerun cannot leave a partial executable.
-install -m 0755 "$download" "$HOME/.local/bin/.herdr.new"
-mv -f "$HOME/.local/bin/.herdr.new" "$HOME/.local/bin/herdr"
-install -m 0755 "$stage/herdr-vps-watchdog" "$HOME/.local/bin/herdr-vps-watchdog"
-install -m 0644 "$stage/config.toml" "$HOME/.config/herdr/config.toml"
-install -m 0644 "$stage/herdr-dev.service" "$HOME/.config/systemd/user/herdr-dev.service"
-install -m 0644 "$stage/herdr-vps-watchdog.service" "$HOME/.config/systemd/user/herdr-vps-watchdog.service"
-install -m 0644 "$stage/herdr-vps-watchdog.timer" "$HOME/.config/systemd/user/herdr-vps-watchdog.timer"
+if [[ ${#changes[@]} -gt 0 ]]; then
+  # Install the verified binary atomically so a failed copy cannot leave it partial.
+  install -m 0755 "$download" "$HOME/.local/bin/.herdr.new"
+  mv -f "$HOME/.local/bin/.herdr.new" "$HOME/.local/bin/herdr"
+  install -m 0755 "$stage/herdr-vps-watchdog" "$HOME/.local/bin/herdr-vps-watchdog"
+  install -m 0644 "$stage/config.toml" "$HOME/.config/herdr/config.toml"
+  install -m 0644 "$stage/herdr-dev.service" "$HOME/.config/systemd/user/herdr-dev.service"
+  install -m 0644 "$stage/herdr-vps-watchdog.service" "$HOME/.config/systemd/user/herdr-vps-watchdog.service"
+  install -m 0644 "$stage/herdr-vps-watchdog.timer" "$HOME/.config/systemd/user/herdr-vps-watchdog.timer"
+fi
 
-# This is the sole privileged action: user -> admin -> root for user lingering.
-/usr/bin/sudo -n -u admin /usr/bin/sudo -n /usr/bin/loginctl enable-linger user
-
-export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-[[ -S "$XDG_RUNTIME_DIR/bus" ]] || fail "user systemd bus is unavailable"
 systemctl --user daemon-reload
 systemctl --user enable herdr-dev.service herdr-vps-watchdog.timer
-systemctl --user restart herdr-dev.service
-systemctl --user restart herdr-vps-watchdog.timer
+systemctl --user start herdr-dev.service herdr-vps-watchdog.timer
 systemctl --user is-active --quiet herdr-dev.service
 systemctl --user is-active --quiet herdr-vps-watchdog.timer
 [[ "$("$HOME/.local/bin/herdr" --version)" == "herdr $version" ]] || fail "installed version mismatch"

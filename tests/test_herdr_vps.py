@@ -34,6 +34,27 @@ class HerdrVpsProvisioningTests(unittest.TestCase):
         command.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")
         command.chmod(0o755)
 
+    def run_remote_decision(self, changed_count, service_active, timer_active):
+        provisioner = PROVISIONER.read_text(encoding="utf-8")
+        marker = "<<'REMOTE_SCRIPT'\n"
+        remote_script = provisioner.split(marker, 1)[1].rsplit("\nREMOTE_SCRIPT", 1)[0]
+        return subprocess.run(
+            [
+                "bash",
+                "-s",
+                "--",
+                "--decision-test",
+                str(changed_count),
+                str(service_active),
+                str(timer_active),
+            ],
+            cwd=REPO,
+            input=remote_script,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
     def test_local_wrapper_attaches_to_dev_session_on_configured_vps(self):
         wrapper = WRAPPER.read_text(encoding="utf-8")
 
@@ -50,7 +71,10 @@ class HerdrVpsProvisioningTests(unittest.TestCase):
         for unit_path in (HERDR_SERVICE, WATCHDOG_SERVICE, WATCHDOG_TIMER):
             with self.subTest(unit=unit_path.name):
                 unit = unit_path.read_text(encoding="utf-8")
-                self.assertNotRegex(unit, r"(?m)^\s*(MemoryMax|MemoryHigh|CPUQuota)\s*=")
+                self.assertNotRegex(
+                    unit,
+                    r"(?m)^\s*(MemoryMax|MemoryHigh|MemoryLimit|LimitAS|CPUQuota)\s*=",
+                )
 
     def test_provisioner_requires_release_digest_before_remote_changes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -88,6 +112,58 @@ class HerdrVpsProvisioningTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(calls.exists(), result.stderr)
+
+    def test_failed_remote_identity_preflight_makes_no_remote_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake_bin = Path(directory)
+            calls = fake_bin / "remote-calls"
+            self.write_command(fake_bin, "herdr", "printf 'herdr 0.8.2\\n'\n")
+            self.write_command(
+                fake_bin,
+                "gh",
+                "printf 'https://github.com/herdrdev/herdr/releases/download/"
+                "v0.8.2/herdr-linux-x86_64\\tsha256:"
+                + "a" * 64
+                + "\\n'\n",
+            )
+            self.write_command(
+                fake_bin,
+                "ssh",
+                "payload=\"$(cat)\"\n"
+                "printf 'ssh %s %s\\n' \"$*\" \"$payload\" >> \"$CALL_LOG\"\n"
+                "exit 73\n",
+            )
+            self.write_command(
+                fake_bin,
+                "scp",
+                "printf 'scp %s\\n' \"$*\" >> \"$CALL_LOG\"\nexit 99\n",
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": str(fake_bin) + os.pathsep + env["PATH"],
+                    "CALL_LOG": str(calls),
+                }
+            )
+
+            result = subprocess.run(
+                [str(PROVISIONER)],
+                cwd=REPO,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            attempted = calls.read_text(encoding="utf-8")
+            self.assertEqual(attempted.count("ssh "), 1, attempted)
+            self.assertIn("id -un", attempted)
+            self.assertIn("uname -s", attempted)
+            self.assertIn("uname -m", attempted)
+            self.assertNotIn("mkdir", attempted)
+            self.assertNotIn("mktemp", attempted)
+            self.assertNotIn("scp ", attempted)
 
     def test_remote_config_is_accepted_by_installed_herdr(self):
         env = os.environ.copy()
@@ -136,6 +212,38 @@ class HerdrVpsProvisioningTests(unittest.TestCase):
                 "/usr/bin/sudo -n -u admin /usr/bin/sudo -n "
                 "/usr/bin/loginctl enable-linger user"
             ],
+        )
+
+    def test_unchanged_active_rerun_keeps_herdr_service_running(self):
+        decision = self.run_remote_decision(0, 1, 1)
+        provisioner = PROVISIONER.read_text(encoding="utf-8")
+
+        self.assertEqual(decision.returncode, 0, decision.stderr)
+        self.assertEqual(decision.stdout.strip(), "keep-running")
+        self.assertNotIn("systemctl --user restart", provisioner)
+
+    def test_changed_active_rerun_requires_restart_without_restarting(self):
+        decision = self.run_remote_decision(2, 1, 1)
+        provisioner = PROVISIONER.read_text(encoding="utf-8")
+
+        self.assertNotEqual(decision.returncode, 0)
+        self.assertEqual(decision.stdout.strip(), "restart-required")
+        self.assertIn("restart required", provisioner)
+        self.assertNotIn("systemctl --user restart", provisioner)
+        self.assertLess(
+            provisioner.index('if [[ "$action" == "restart-required" ]]'),
+            provisioner.index('install -m 0755 "$download"'),
+        )
+
+    def test_inactive_service_is_installed_and_started(self):
+        decision = self.run_remote_decision(6, 0, 0)
+        provisioner = PROVISIONER.read_text(encoding="utf-8")
+
+        self.assertEqual(decision.returncode, 0, decision.stderr)
+        self.assertEqual(decision.stdout.strip(), "install-and-start")
+        self.assertIn(
+            "systemctl --user start herdr-dev.service herdr-vps-watchdog.timer",
+            provisioner,
         )
 
 
