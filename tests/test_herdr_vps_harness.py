@@ -350,6 +350,64 @@ class HerdrVpsCliProvisioningTests(unittest.TestCase):
             self.assertIn("unmanaged directory", result.stderr)
             self.assertEqual(attempted, "")
 
+    def test_foreign_owned_remote_home_stops_before_any_provision_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            fake_bin = root / "bin"
+            home.mkdir()
+            fake_bin.mkdir()
+            operations = root / "operations"
+            remote_profile = root / "remote-profile.sh"
+            remote_profile.write_text("# profile\n", encoding="utf-8")
+            provisioner = self.patched_provisioner(root)
+
+            self.write_command(
+                fake_bin,
+                "id",
+                "case \"${1:-}\" in\n"
+                "  -un) printf 'user\\n' ;;\n"
+                f"  -u) printf '{os.getuid() + 10000}\\n' ;;\n"
+                "  *) exit 2 ;;\n"
+                "esac\n",
+            )
+            self.write_command(
+                fake_bin,
+                "uname",
+                "case \"${1:-}\" in -s) printf 'Linux\\n' ;; -m) printf 'x86_64\\n' ;; *) exit 2 ;; esac\n",
+            )
+            self.write_command(fake_bin, "zsh", "exit 0\n")
+            for command in ("chmod", "curl", "install", "mkdir", "npm"):
+                self.write_command(
+                    fake_bin,
+                    command,
+                    f"printf '{command} %s\\n' \"$*\" >> \"$OPERATION_LOG\"\nexit 91\n",
+                )
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "HOME": str(home),
+                    "PATH": str(fake_bin) + os.pathsep + "/usr/bin:/bin",
+                    "OPERATION_LOG": str(operations),
+                    "HERDR_TEST_ZSH_PATH": str(fake_bin / "zsh"),
+                }
+            )
+            result = subprocess.run(
+                ["bash", str(provisioner), "--remote", str(remote_profile)],
+                cwd=REPO,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            attempted = operations.read_text(encoding="utf-8") if operations.exists() else ""
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("owner", result.stderr)
+            self.assertEqual(attempted, "")
+            self.assertFalse((home / ".cache").exists())
+
     def test_remote_profile_adds_user_local_paths_once(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory) / "home"
@@ -390,6 +448,8 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
         root,
         include_auth=True,
         external_skill_link=False,
+        symlink_skill_root=False,
+        external_cache_link=False,
         mac_binary=False,
         mac_wrapper=False,
         broken_dcode_alias=False,
@@ -420,6 +480,18 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
             codex_skill, target_is_directory=True
         )
         (local_home / ".ai-memory").symlink_to(memory_store, target_is_directory=True)
+        if symlink_skill_root:
+            escaped_root = root / "escaped-skill-root"
+            escaped_root.mkdir()
+            (escaped_root / "SKILL.md").write_text(
+                "escaped root\n", encoding="utf-8"
+            )
+            (local_home / ".claude" / "skills").rename(
+                root / "displaced-skill-root"
+            )
+            (local_home / ".claude" / "skills").symlink_to(
+                escaped_root, target_is_directory=True
+            )
         if external_skill_link:
             external_secret = root / "external-secret-tree"
             external_secret.mkdir()
@@ -428,6 +500,15 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
             )
             (local_home / ".claude" / "skills" / "external-secret").symlink_to(
                 external_secret, target_is_directory=True
+            )
+        if external_cache_link:
+            external_cache = root / "external-cache-tree"
+            external_cache.mkdir()
+            (external_cache / "token.txt").write_text(
+                "SHOULD-NEVER-TRANSFER\n", encoding="utf-8"
+            )
+            (local_home / ".claude" / "skills" / "cache").symlink_to(
+                external_cache, target_is_directory=True
             )
         if mac_binary:
             binary = local_home / ".claude" / "skills" / "opaque-data"
@@ -509,7 +590,15 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
             (local_home / ".config" / "zai" / "token").chmod(0o600)
         return local_home
 
-    def make_transport(self, root, remote_home, failing_find=False, failing_file=False, have_zsh=True):
+    def make_transport(
+        self,
+        root,
+        remote_home,
+        failing_find=False,
+        failing_file=False,
+        have_zsh=True,
+        remote_uid=None,
+    ):
         fake_bin = root / "transport-bin"
         remote_bin = root / "remote-bin"
         transport_log = root / "transport.log"
@@ -518,7 +607,11 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
         self.write_command(
             remote_bin,
             "id",
-            "[[ \"${1:-}\" == '-un' ]] && printf 'user\\n' || exit 2\n",
+            "case \"${1:-}\" in\n"
+            "  -un) printf 'user\\n' ;;\n"
+            f"  -u) printf '{os.getuid() if remote_uid is None else remote_uid}\\n' ;;\n"
+            "  *) exit 2 ;;\n"
+            "esac\n",
         )
         self.write_command(
             remote_bin,
@@ -603,6 +696,8 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
         mac_binary=False,
         mac_wrapper=False,
         external_skill_link=False,
+        symlink_skill_root=False,
+        external_cache_link=False,
         failing_find=False,
         failing_file=False,
         remote_memory_escape=False,
@@ -612,11 +707,14 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
         have_zsh=True,
         broken_dcode_alias=False,
         broken_glm=False,
+        remote_uid=None,
     ):
         local_home = self.make_local_harness(
             root,
             include_auth=include_auth,
             external_skill_link=external_skill_link,
+            symlink_skill_root=symlink_skill_root,
+            external_cache_link=external_cache_link,
             mac_binary=mac_binary,
             mac_wrapper=mac_wrapper,
             broken_dcode_alias=broken_dcode_alias,
@@ -693,6 +791,7 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
             failing_find=failing_find,
             failing_file=failing_file,
             have_zsh=have_zsh,
+            remote_uid=remote_uid,
         )
 
         env = os.environ.copy()
@@ -879,6 +978,30 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
             self.assertFalse((root / "transport.log").exists())
             self.assertFalse((remote_home / ".ai-memory").exists())
 
+    def test_symlinked_allowlist_root_is_rejected_before_any_transport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result, _, remote_home = self.run_sync(
+                root, symlink_skill_root=True
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("allowlisted root", result.stderr)
+            self.assertFalse((root / "transport.log").exists())
+            self.assertFalse((remote_home / ".ai-memory").exists())
+
+    def test_external_cache_symlink_is_inspected_before_any_transport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result, _, remote_home = self.run_sync(
+                root, external_cache_link=True
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unapproved symlink target", result.stderr)
+            self.assertFalse((root / "transport.log").exists())
+            self.assertFalse((remote_home / ".ai-memory").exists())
+
     def test_local_find_failure_is_rejected_before_any_transport(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -971,7 +1094,26 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
             self.assertNotIn("rsync|", operations)
             self.assertFalse((remote_home / ".ai-memory").exists())
 
-    def test_broken_bridge_alias_restores_only_recognized_direct_shims(self):
+    def test_foreign_owned_remote_home_stops_before_sync_mutation_or_transfer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result, _, remote_home = self.run_sync(
+                root,
+                remote_existing_auth_mode=0o644,
+                remote_uid=os.getuid() + 10000,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("owner", result.stderr)
+            operations = (root / "transport.log").read_text(encoding="utf-8")
+            self.assertNotIn("rsync|", operations)
+            self.assertEqual(
+                (remote_home / ".codex" / "auth.json").stat().st_mode & 0o777,
+                0o644,
+            )
+            self.assertFalse(any((remote_home / ".cache").glob("herdr-auth-stage.*")))
+
+    def test_broken_bridge_alias_leaves_both_public_commands_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             result, _, remote_home = self.run_sync(
                 Path(directory), broken_dcode_alias=True
@@ -979,22 +1121,34 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("INCOMPLETE dcode bridge", result.stdout)
-            native = (
-                remote_home
-                / ".local"
-                / "share"
-                / "herdr-clis"
-                / "dcode-0.1.56"
-                / "bin"
-            )
+            launcher = remote_home / ".claude" / "bin" / "dcode-launcher"
             self.assertEqual(
                 (remote_home / ".local" / "bin" / "dcode").resolve(),
-                (native / "dcode").resolve(),
+                launcher.resolve(),
             )
             self.assertEqual(
                 (remote_home / ".local" / "bin" / "deepagents-code").resolve(),
-                (native / "deepagents-code").resolve(),
+                launcher.resolve(),
             )
+            capture = Path(directory) / "broken-bridge-capture"
+            env = os.environ.copy()
+            env.update(
+                {
+                    "HOME": str(remote_home),
+                    "PATH": "/usr/bin:/bin",
+                    "DCODE_CAPTURE": str(capture),
+                }
+            )
+            for command_name in ("dcode", "deepagents-code"):
+                invocation = subprocess.run(
+                    [str(remote_home / ".local" / "bin" / command_name), "run"],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertNotEqual(invocation.returncode, 0, command_name)
+            self.assertFalse(capture.exists())
 
     def test_glm_wrapper_must_functionally_report_the_pinned_claude_version(self):
         with tempfile.TemporaryDirectory() as directory:

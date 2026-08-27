@@ -116,7 +116,7 @@ Run: `git add bin/herdr-vps scripts/provision-herdr-vps.sh config/herdr-vps scri
 
 - [ ] **Step 1: Write failing safety and parity tests**
 
-Assert exact version pins for Claude Code 2.1.237, Codex 0.148.0, Pi 0.84.2, OMP 17.3.0, dcode 0.1.56, Grok 1.0.5, OpenCode 1.17.13, Hermes 0.20.4's immutable release commit, and the current pinned Cursor Linux artifact. Assert official digest verification for native assets, no `.env`/session DB/broker/MCP/cache paths, no `rsync --delete`, mode `0600` for auth destinations, and fail-closed symlink creation.
+Assert exact version pins for Claude Code 2.1.237, Codex 0.148.0, Pi 0.84.2, OMP 17.3.0, dcode 0.1.56, Grok 1.0.5, OpenCode 1.17.13, Hermes 0.20.4's immutable release commit, and the current pinned Cursor Linux artifact. Assert official digest verification for installable native assets and explicit fail-closed incomplete status for Grok and Cursor while their vendors publish no SHA-256, plus no `.env`/session DB/broker/MCP/cache paths, no `rsync --delete`, mode `0600` for auth destinations, and fail-closed symlink creation.
 
 - [ ] **Step 2: Verify tests fail**
 
@@ -155,7 +155,7 @@ Run: `git add scripts/provision-herdr-vps-clis.sh scripts/sync-herdr-vps-harness
 - Modify remotely: `/home/user/.config/systemd/user/herdr-dev.service`
 - Modify remotely: `/home/user/.config/systemd/user/herdr-vps-watchdog.service`
 - Modify remotely: `/home/user/.config/systemd/user/herdr-vps-watchdog.timer`
-- Modify remotely: `/home/user/.local/bin/{claude,codex,pi,omp,dcode,grok,opencode,hermes,agent,glm}`
+- Modify remotely: `/home/user/.local/bin/{claude,codex,pi,omp,dcode,grok,opencode,hermes,cursor-agent,glm}`
 - Modify remotely: allowlisted auth/config, `/home/user/.ai-memory`, `/home/user/.claude/skills`, and harness symlinks
 
 **Interfaces:**
