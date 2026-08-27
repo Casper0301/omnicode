@@ -114,15 +114,15 @@ if [ "$FAST" = 1 ]; then
   warn "uib browser probe skipped (--fast)"
 else
   if uib status >/dev/null 2>&1; then
-    PNG=$(mktemp -t uib-doctor).png
-    if uib shot "$PNG" >/dev/null 2>&1 && [ "$(stat -f%z "$PNG" 2>/dev/null || echo 0)" -gt 1000 ]; then
+    PNG=$(mktemp -t uib-doctor.XXXXXX).png
+    if uib shot "$PNG" >/dev/null 2>&1 && [ "$(wc -c < "$PNG" 2>/dev/null || echo 0)" -gt 1000 ]; then
       pass "uib daemon already live — non-destructive screenshot OK (left running)"
     else warn "uib daemon live but screenshot failed"; fi
   else
-    PNG=$(mktemp -t uib-doctor).png
+    PNG=$(mktemp -t uib-doctor.XXXXXX).png
     if uib open 'data:text/html,<title>doctor</title><h1>omnicode doctor</h1>' >/dev/null 2>&1 \
        && uib shot "$PNG" >/dev/null 2>&1 \
-       && [ "$(stat -f%z "$PNG" 2>/dev/null || echo 0)" -gt 1000 ]; then
+       && [ "$(wc -c < "$PNG" 2>/dev/null || echo 0)" -gt 1000 ]; then
       uib stop >/dev/null 2>&1
       pass "uib full round-trip (open->shot->stop) works, offline-safe data: URL"
     else

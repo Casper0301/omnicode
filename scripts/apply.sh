@@ -67,10 +67,12 @@ done
 mkdir -p "$H/.claude/skills/rjv"
 cp "$REPO/skills/rjv/SKILL.md" "$H/.claude/skills/rjv/SKILL.md"
 
-# Daily doctor (silent monitor): launchd 08:45, records to ~/.omnicode/
-cp "$REPO/launchd/com.casper.omnicode-doctor.plist" "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist"
-launchctl unload "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist" 2>/dev/null || true
-launchctl load  "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist"
+# Daily doctor (silent monitor): launchd 08:45 on macOS; systemd timer on Linux VPS
+if [[ "$(uname)" == "Darwin" ]]; then
+  cp "$REPO/launchd/com.casper.omnicode-doctor.plist" "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist"
+  launchctl unload "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist" 2>/dev/null || true
+  launchctl load  "$H/Library/LaunchAgents/com.casper.omnicode-doctor.plist"
+fi
 
 echo "== applied. Doctrine NOT touched (source of truth: ~/.ai-memory/multi-model-orchestration.md)."
 echo "Run: omnicode-doctor"
