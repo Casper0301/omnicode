@@ -1,15 +1,206 @@
-[worktrees]
-directory = "/home/user/Projects/.herdr-worktrees"
+# herdr config — tuned for Casper's multi-lane omnicode workflow
+# Written 2026-08-12. `herdr --default-config` prints every available option.
+# Reload after edits: herdr server reload-config  (or prefix+shift+R)
+
+onboarding = false
+
+# ---------------------------------------------------------------------------
+# SESSION / CONTEXT PERSISTENCE  — the "cross-session passing" layer
+# ---------------------------------------------------------------------------
 
 [session]
+# Restore agent panes into their NATIVE conversation sessions after a herdr
+# server restart (claude --resume, codex resume, etc). Needs the per-agent
+# integrations installed — all of Casper's lanes now are.
 resume_agents_on_restore = true
 
-[ui.sidebar.spaces]
-rows = [["state_icon", "workspace"]]
-
 [experimental]
+# Kitty graphics — required by the herdr-browser plugin. Ghostty supports it.
 kitty_graphics = true
+# Keep recent pane screen history across full server restarts, so a restart
+# does not wipe the visible context of a long agent run.
 pane_history = true
 
 [advanced]
-scrollback_limit_bytes = 10000000
+# 32 MB scrollback per pane (default 10 MB). Long agent runs stay readable
+# and `herdr agent read --lines N` can reach further back.
+scrollback_limit_bytes = 33554432
+
+# ---------------------------------------------------------------------------
+# WORKTREES — never share a checkout between two agents again
+# ---------------------------------------------------------------------------
+
+[worktrees]
+# Worktrees land OUTSIDE the project dir, so autoradar / casperclaw checkouts
+# are never mutated by a parallel lane. prefix+shift+G creates one.
+directory = "/home/user/Projects/.herdr-worktrees"
+
+# ---------------------------------------------------------------------------
+# TERMINAL
+# ---------------------------------------------------------------------------
+
+[terminal]
+shell_mode = "auto"
+# New panes inherit the source pane's cwd — splits stay in the same project.
+new_cwd = "follow"
+
+# ---------------------------------------------------------------------------
+# UI — built for watching many lanes at once
+# ---------------------------------------------------------------------------
+
+[ui]
+# Do not force a full-screen repaint when Ghostty/Herdr regains focus. This
+# removes the visible flash while switching back to a live Pi session; normal
+# dirty-cell rendering still updates changed output immediately.
+redraw_on_focus_gained = false
+
+# Capture normal clicks for Herdr pane/sidebar navigation.
+# Control-click public http(s) links open Chrome on the Mac (herdr-open-url via :2222).
+# Control-click localhost stays a Herdr pane on this host.
+# The Herdr browser remains opt-in through the explicit shortcuts below.
+# Hold Shift when selecting terminal text or using Ghostty-native mouse behavior.
+mouse_capture = true
+
+# Within the selected project, blocked / done agents float to the top.
+# The local.project-agent-feed startup plugin filters out every other project.
+agent_panel_sort = "priority"
+
+# Which lane is in which split, at a glance.
+show_agent_labels_on_pane_borders = true
+
+# Skip the name prompt on new tabs — one keystroke instead of two.
+# Rename later with prefix+shift+T if a tab earns a name.
+prompt_new_tab_name = false
+
+# Give every label enough horizontal room; use extra row height instead of
+# squeezing unrelated values onto one line.
+sidebar_width = 44
+sidebar_min_width = 40
+sidebar_max_width = 60
+confirm_close = true
+pane_borders = true
+pane_gaps = false
+
+[ui.sidebar.agents]
+# One concern per row prevents clipped or visually broken text. A blank line
+# keeps each session distinct, while the extra height preserves full labels.
+row_gap = 1
+rows = [
+  ["state_icon", { token = "state_text", bold = true }],
+  [{ token = "$session_summary", fg = "#f9e2af", bold = true }],
+  ["agent", "pane"],
+  ["$limit", "$context"],
+]
+
+[ui.sidebar.agents.rows_by_agent]
+# After a pling, the top entry says READY 🆕; once seen it says READY with no suffix.
+# The summary is AI-maintained when available, with substantive-task and project fallbacks.
+pi = [
+  ["state_icon", { token = "state_text", bold = true }],
+  [{ token = "$session_summary", fg = "#f9e2af", bold = true }],
+  ["agent", "pane"],
+  ["$limit", "$context"],
+]
+
+# Claude's OSC title is often generic or static. Use the session-summary token;
+# integrations may fall back to the substantive task or project identity.
+claude = [
+  ["state_icon", { token = "state_text", bold = true }],
+  [{ token = "$session_summary", fg = "#f9e2af", bold = true }],
+  # Claude is both harness and provider, so show it once rather than twice.
+  ["agent", "pane"],
+  ["$limit", "$context"],
+]
+
+[ui.sidebar.spaces]
+row_gap = 0
+rows = [["state_icon", "workspace"]]
+
+[ui.toast]
+# Herdr's own clickable in-app toast is the ONLY alerting path. Attention
+# Router no longer posts macOS script notifications (its event handler was
+# removed 2026-08-13); it still owns prefix+O to reopen the next blocked/done
+# session. Do not set delivery = "system" — that reintroduces OS notifications.
+delivery = "herdr"
+delay_seconds = 1
+
+[ui.toast.herdr]
+# Top-right is easier to spot than the old bottom-corner toast.
+position = "top-right"
+
+[ui.sound]
+# Audible cue when a background agent changes state (blocked / done).
+enabled = true
+
+# ---------------------------------------------------------------------------
+# KEYS — fast lane switching
+# ---------------------------------------------------------------------------
+
+[keys]
+prefix = "ctrl+b"
+
+# Jump straight to agent N in the sidebar attention queue.
+focus_agent = "prefix+alt+1..9"
+# Attention Router owns this key so it still works after Herdr's toast fades.
+open_notification_target = ""
+# Jump straight to space N.
+switch_workspace = "prefix+shift+1..9"
+# Cycle lanes without leaving the keyboard.
+next_agent = "prefix+a"
+previous_agent = "prefix+shift+a"
+# Back-and-forth between the last two panes, anywhere in the session.
+last_pane = "prefix+backtick"
+
+# Directional pane focus without the prefix. cmd+arrow is unbound in
+# ~/.config/ghostty/config so the chord reaches herdr; herdr negotiates the
+# kitty keyboard protocol, so cmd survives as a real modifier.
+# The prefix+hjkl bindings stay as the always-works fallback.
+focus_pane_left = ["prefix+h", "cmd+left"]
+focus_pane_down = ["prefix+j", "cmd+down"]
+focus_pane_up = ["prefix+k", "cmd+up"]
+focus_pane_right = ["prefix+l", "cmd+right"]
+
+# --- custom commands ---
+
+# Persistent attention jump: blocked sessions first, then unseen completed work.
+[[keys.command]]
+key = "prefix+o"
+type = "plugin_action"
+command = "local.attention-router.open-latest"
+description = "attention: open next session"
+
+# Browser in a right split. prefix+b is toggle_sidebar, so browser is shifted.
+[[keys.command]]
+key = "prefix+shift+b"
+type = "shell"
+command = '"${HERDR_BIN_PATH}" plugin pane open --plugin official.browser --entrypoint browser --placement split --direction right --focus'
+description = "browser: right split"
+
+# Browser full-screen overlay.
+[[keys.command]]
+key = "prefix+alt+b"
+type = "shell"
+command = '"${HERDR_BIN_PATH}" plugin pane open --plugin official.browser --entrypoint browser --placement overlay --focus'
+description = "browser: overlay"
+
+# Context + rate-limit meters for every lane (usagebar plugin).
+[[keys.command]]
+key = "prefix+u"
+type = "plugin_action"
+command = "usagebar.open-limits"
+description = "usage: limits pane"
+
+[[keys.command]]
+key = "prefix+shift+u"
+type = "plugin_action"
+command = "usagebar.refresh"
+description = "usage: refresh meters"
+
+# Hand the focused pane's context to another lane (see `herdr-handoff --help`).
+[[keys.command]]
+key = "prefix+shift+h"
+type = "popup"
+command = "herdr-handoff --pick"
+width = "80%"
+height = "70%"
+description = "handoff context to another lane"
