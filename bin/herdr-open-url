@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# herdr-open-url — hop one URL to Mac Chrome over the reverse SSH tunnel.
+# Usage: herdr-open-url <url>   (http(s) or scheme-less host[:port][/path])
+#
+# Scheme-less input is normalized: localhost/127.0.0.1/[::1] -> http://,
+# everything else -> https://. ponytail: "config.toml"-style strings look
+# like bare hosts; callers that feed filenames get a dead Chrome lookup.
+set -euo pipefail
+
+usage() {
+  printf 'usage: herdr-open-url <http(s)-url | host[:port][/path]>\n' >&2
+  exit 2
+}
+
+[[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && usage
+[[ $# -eq 1 ]] || usage
+
+url="$1"
+if [[ "$url" == *$'\n'* || "$url" == *$'\r'* || "$url" == *[[:space:]]* ]]; then
+  printf 'herdr-open-url: refusing URL with whitespace\n' >&2
+  exit 1
+fi
+
+if [[ ! "$url" =~ ^https?:// ]]; then
+  if [[ "$url" =~ ^(localhost|127\.0\.0\.1|\[[0-9A-Fa-f:]+\]|(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+))(:[0-9]+)?([/?#].*)?$ ]]; then
+    case "$url" in
+      localhost*|127.0.0.1*) url="http://$url" ;;
+      \[*)                   url="http://$url" ;;
+      *)                     url="https://$url" ;;
+    esac
+  else
+    printf 'herdr-open-url: refusing non-URL: %s\n' "$1" >&2
+    exit 1
+  fi
+fi
+
+# Test hook: print the normalized URL instead of hopping.
+if [[ "${HERDR_OPEN_URL_DRYRUN:-}" == "1" ]]; then
+  printf '%s\n' "$url"
+  exit 0
+fi
+
+exec "${HERDR_SSH_BIN:-ssh}" \
+  -p 2222 \
+  -i "$HOME/.ssh/id_herdr_open_url" \
+  -o IdentitiesOnly=yes \
+  -o BatchMode=yes \
+  -o ConnectTimeout=5 \
+  -o UserKnownHostsFile="$HOME/.ssh/known_hosts_herdr_open" \
+  casperschive@localhost \
+  "$url"
