@@ -12,3 +12,11 @@ case ":${PATH:-}:" in
   *) PATH="$HOME/.local/bin${PATH:+:$PATH}" ;;
 esac
 export PATH
+
+# Route any tool that honors $BROWSER (OAuth flows, harness "open this" links)
+# through the reverse-SSH hop to Chrome on the Mac. Harmless without a tunnel:
+# herdr-open-url just fails fast.
+case ":${BROWSER:-}:" in
+  *":$HOME/.local/bin/herdr-open-url:"*) ;;
+  *) export BROWSER="$HOME/.local/bin/herdr-open-url" ;;
+esac
