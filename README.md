@@ -1,6 +1,16 @@
 # omnicode
 
-Casper's owned multi-model orchestration layer: one trusted architect session routes bounded work to subscription-backed Codex, Grok, GLM, and dcode lanes, then independently verifies the result. It provides visible tmux execution, quota-aware fallback, a durable goal ledger, isolated high-stakes race-and-judge, and a clean-profile UI loop.
+Multi-model orchestration: one trusted architect session routes bounded work to subscription-backed Codex, Grok, GLM, and dcode lanes, then independently verifies the result. Visible tmux execution, quota-aware fallback, a durable goal ledger, isolated high-stakes race-and-judge, and a clean-profile UI loop.
+
+## Install
+
+```bash
+git clone https://github.com/Casper0301/omnicode.git ~/Projects/omnicode
+~/Projects/omnicode/scripts/apply.sh
+omnicode-doctor
+```
+
+Needs the vendor CLIs you already pay for (Claude Code, and at least one of Codex / Grok / GLM). Subscription auth only — no API keys.
 
 **Current lane policy:** no Gemini or Antigravity lane. Non-Anthropic cross-checks route to Grok first and Codex second.
 

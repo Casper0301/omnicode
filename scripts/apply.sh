@@ -30,13 +30,24 @@ done
 
 echo "== apply: $REPO -> live system"
 
-install -m 755 "$REPO/bin/lanes"            "$H/.local/bin/lanes"
-install -m 755 "$REPO/bin/lane-pick"        "$H/.local/bin/lane-pick"
-install -m 755 "$REPO/bin/goal"             "$H/.local/bin/goal"
-install -m 755 "$REPO/bin/uib"              "$H/.local/bin/uib"
-install -m 755 "$REPO/bin/omnicode-doctor"  "$H/.local/bin/omnicode-doctor"
-install -m 755 "$REPO/bin/herdr-vps"        "$H/.local/bin/herdr-vps"
-install -m 755 "$REPO/bin/herdr-open-url"   "$H/.local/bin/herdr-open-url"
+install_bin() {
+  local src="$1" dest="$2"
+  if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$src" ]; then
+    return 0
+  fi
+  if [ -e "$dest" ] && [ "$(realpath "$src")" = "$(realpath "$dest")" ]; then
+    return 0
+  fi
+  install -m 755 "$src" "$dest"
+}
+
+install_bin "$REPO/bin/lanes"            "$H/.local/bin/lanes"
+install_bin "$REPO/bin/lane-pick"        "$H/.local/bin/lane-pick"
+install_bin "$REPO/bin/goal"             "$H/.local/bin/goal"
+install_bin "$REPO/bin/uib"              "$H/.local/bin/uib"
+install_bin "$REPO/bin/omnicode-doctor"  "$H/.local/bin/omnicode-doctor"
+install_bin "$REPO/bin/herdr-vps"        "$H/.local/bin/herdr-vps"
+install_bin "$REPO/bin/herdr-open-url"   "$H/.local/bin/herdr-open-url"
 
 mkdir -p "$H/.uib" "$H/.claude/omnicode" "$H/.claude/agents" "$H/.claude/workflows" "$CLAUDE_SKILLS" "$H/.omnicode"
 cp "$REPO/uib/uib.mjs"      "$H/.uib/uib.mjs"

@@ -189,6 +189,10 @@ if grep -q 'grok-4.6' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
    && grep -q "model: 'fable'" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
   pass "RJV uses Grok 4.6 xhigh and a Fable judge"
 else fail "RJV model/effort policy is stale"; fi
+if grep -q 'diffText' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
+   && grep -q 'verifyCmdPassed' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
+  pass "RJV serves diffs to the judge and requires verifier re-run"
+else fail "RJV no longer serves diffText / verifyCmdPassed"; fi
 if grep -qE 'stash or reset them|git stash|reset --hard|stash -u' "$H/.agents/skills/omnicode/SKILL.md" 2>/dev/null; then
   fail "omnicode skill contains destructive fallback cleanup guidance"
 else pass "omnicode skill bans destructive fallback cleanup"; fi

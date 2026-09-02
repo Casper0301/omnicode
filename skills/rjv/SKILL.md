@@ -22,14 +22,16 @@ Workflow({ scriptPath: '~/.claude/workflows/race-and-judge.mjs', args: { spec: '
    - Claude Opus 5, 1M context, adaptive reasoning
    - GPT-5.6-Sol, max reasoning, 272K subscription context (258.4K effective)
    - Grok 4.6, xhigh reasoning, 500K context
-6. Claude Fable 5 (1M context) judges only complete, independently verified candidates.
-7. GLM-5.3 (1M context, max reasoning) adversarially verifies the normalized winner.
-8. Apply nothing unless `readyToApply: true`. The architect then applies the known diff, inspects it, and re-runs the verification command.
+6. Claude Fable 5 (1M context) judges only complete, independently verified candidates **from their served `diffText`**, not from summaries.
+7. GLM-5.3 (1M context, max reasoning) adversarially verifies the winner **and re-runs the trusted verification command**.
+8. Apply nothing unless `readyToApply: true` (sound + `verifyCmdPassed`). The architect then applies the known diff, inspects it, and re-runs the verification command.
+
+Implementers do not see each other's work. The spec is the only shared task state during the race. After the race, `diffText` is the state the judge and verifier get.
 
 ## Fail closed
 
-- Partial, timed-out, unavailable, or unverified lanes never reach the judge.
-- A missing/failed verifier means no apply instruction.
+- Partial, timed-out, unavailable, unverified, or empty-diff lanes never reach the judge.
+- A missing/failed verifier, or `verifyCmdPassed` not true, means no apply instruction.
 - Never use Codex `ultra`; it would add internal fan-out inside RJV.
 - No Gemini or Antigravity lane.
 - Hidden tests/reference solutions must live outside every lane-readable filesystem; leakage-sensitive benchmarks require a real sandbox/container.

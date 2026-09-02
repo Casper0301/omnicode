@@ -121,14 +121,24 @@ uib eval 'location.reload()' · uib console 20 · uib url · uib stop
 
 Use `uib` only for clean-profile product UI. Authenticated browsing stays in the approved logged-in browser surface, never a writer lane.
 
+## State across agents
+
+Doctrine (rules, prefs) rides the shared brain file. **Task state does not auto-follow a model.** Serve it explicitly:
+
+- **One lane:** the five-part spec file is the packet. Pass the same `$SPEC` path; do not rely on chat history.
+- **Across sessions/harnesses:** `goal step <slug>` is the resume packet. Record `goal lane` / `goal note` after work. Done is `goal check` green, never a model's word.
+- **RJV:** implementers are isolated on purpose. The spec is copied into each lane. The **diffText** they return is the state the judge and verifier see. They must not read each other's trees.
+
+If you skip the spec and the goal ledger, the next agent starts blind.
+
 ## RJV preflight — fail closed
 
 Use `/rjv` only for genuinely high-stakes work.
 
 1. Start from a clean, committed baseline or a dedicated worktree. Never auto-stash shared work.
 2. Keep hidden tests, reference solutions, and benchmark oracles outside every lane-readable filesystem; use a real sandbox/container for leakage-sensitive evals.
-3. A candidate is eligible only when its lane completed, independently re-ran verification, and produced a diff.
-4. Do not apply a winner unless the adversarial verifier returns `sound` and the architect re-runs the verification command after applying the diff.
+3. A candidate is eligible only when its lane completed, independently re-ran verification, and served a non-empty `diffText`.
+4. Do not apply a winner unless the adversarial verifier returns `sound` **and** `verifyCmdPassed: true`. Then the architect re-runs the verification command after applying the diff.
 
 ## Non-negotiables
 
