@@ -1,16 +1,16 @@
 // omnicode (race-and-judge.mjs) — high-stakes race across four model families.
 // Invoke from a clean GIT REPO cwd:
 //   Workflow({ scriptPath: '~/.claude/workflows/race-and-judge.mjs', args: { spec: '<five-part spec>', verifyCmd: '<trusted command>' } })
-// Race: Claude Opus 5 + GPT-5.6-Sol max + Grok 4.6 xhigh. Judge: Fable 5. Verify: GLM-5.3 max.
+// Race: Claude Fable 5.1 + GPT-5.6-Sol max + Grok 4.6 xhigh. Judge: Fable 5.1. Verify: GLM-5.3 max.
 // State across the race is the spec + each lane's diffText. Implementations stay isolated.
 // The architect applies a winner only when verification is sound AND verifyCmdPassed, then re-runs verifyCmd.
 
 export const meta = {
   name: 'omnicode',
-  description: 'Race Opus 5, GPT-5.6-Sol max, and Grok 4.6 xhigh in isolated worktrees; Fable 5 judges; GLM-5.3 max verifies.',
+  description: 'Race Fable 5.1, GPT-5.6-Sol max, and Grok 4.6 xhigh in isolated worktrees; Fable 5.1 judges; GLM-5.3 max verifies.',
   phases: [
     { title: 'Race', detail: '3 implementer lanes in parallel (Claude/GPT/Grok), each in its own git worktree' },
-    { title: 'Judge', detail: 'Fable 5 reads every eligible diffText and picks one' },
+    { title: 'Judge', detail: 'Fable 5.1 reads every eligible diffText and picks one' },
     { title: 'Verify', detail: 'GLM-5.3 adversarially verifies the winner and re-runs the trusted proof command' },
   ],
 }
@@ -23,7 +23,7 @@ if (!verifyCmd) { log('ABORT: no args.verifyCmd'); throw new Error('race-and-jud
 const raceRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 const raceDir = `/tmp/omnicode-race-${raceRunId}`
 const diffPaths = {
-  opus: `${raceDir}/opus.diff`,
+  fable: `${raceDir}/fable.diff`,
   codex: `${raceDir}/codex.diff`,
   grok: `${raceDir}/grok.diff`,
 }
@@ -34,7 +34,7 @@ const fillDiffText = (diffPath) => `After capturing the diff, set diffText to th
 const LANE_SCHEMA = {
   type: 'object',
   properties: {
-    lane: { type: 'string', enum: ['opus', 'codex', 'grok'] },
+    lane: { type: 'string', enum: ['fable', 'codex', 'grok'] },
     status: { type: 'string', enum: ['complete', 'partial', 'timeout', 'unavailable'] },
     summary: { type: 'string', description: 'one-line restatement of what was implemented' },
     diffPath: { type: 'string', description: 'absolute path to the captured staged binary diff' },
@@ -49,8 +49,8 @@ const LANE_SCHEMA = {
 phase('Race')
 const lanes = await parallel([
   () => agent(
-    `You are the Claude Opus implementation lane in a high-stakes race. Implement the five-part spec in your isolated worktree. ${isolation} Re-run the trusted verification command and record its actual output. Only after verification, capture every change including untracked files with \`${captureDiff(diffPaths.opus)}\`. ${fillDiffText(diffPaths.opus)} Return lane="opus" and diffPath=${diffPaths.opus}. Never claim success from model judgment alone.\n\nVERIFICATION COMMAND: ${verifyCmd}\n\nSPEC:\n${spec}`,
-    { label: 'opus-lane [Claude Opus]', phase: 'Race', model: 'opus', isolation: 'worktree', schema: LANE_SCHEMA }
+    `You are the Claude Fable 5.1 implementation lane in a high-stakes race. Implement the five-part spec in your isolated worktree. ${isolation} Re-run the trusted verification command and record its actual output. Only after verification, capture every change including untracked files with \`${captureDiff(diffPaths.fable)}\`. ${fillDiffText(diffPaths.fable)} Return lane="fable" and diffPath=${diffPaths.fable}. Never claim success from model judgment alone.\n\nVERIFICATION COMMAND: ${verifyCmd}\n\nSPEC:\n${spec}`,
+    { label: 'fable-lane [Claude Fable 5.1]', phase: 'Race', model: 'claude-fable-5-1', isolation: 'worktree', schema: LANE_SCHEMA }
   ),
   () => agent(
     `You are the codex-implementer lane in a high-stakes race. ${isolation} Follow the current agent pattern and drive Codex with the prompt as its final positional argument: \`codex exec --ignore-user-config -m gpt-5.6-sol -c model_reasoning_effort=max -c model_context_window=272000 -c approval_policy="never" -s workspace-write --skip-git-repo-check -C "$(pwd)" -o "$FINAL" "$(cat "$SPEC")"\`. Never use stdin redirection. Re-run the trusted verification command yourself. Only after verification, capture every change with \`${captureDiff(diffPaths.codex)}\`. ${fillDiffText(diffPaths.codex)} Return lane="codex" and diffPath=${diffPaths.codex}.\n\nVERIFICATION COMMAND: ${verifyCmd}\n\nSPEC:\n${spec}`,
@@ -83,7 +83,7 @@ phase('Judge')
 const JUDGE_SCHEMA = {
   type: 'object',
   properties: {
-    winner: { type: 'string', enum: ['opus', 'codex', 'grok', 'none'] },
+    winner: { type: 'string', enum: ['fable', 'codex', 'grok', 'none'] },
     winningDiffPath: { type: 'string', description: 'candidate diff path; normalized by the workflow before use' },
     reasoning: { type: 'string', description: 'why this winner; cite specific diff content' },
     risks: { type: 'string', description: 'single risk to watch, or "none"' },
@@ -100,7 +100,7 @@ const judgePayload = eligible.map(l => ({
 }))
 const rawJudge = await agent(
   `You are the judge. The implementers cannot see each other. You are given each eligible lane's actual diffText — compare those diffs to the five-part spec and pick exactly one, or winner="none" if all are flawed. Do not trust summaries or verification claims instead of the diffText. Cite concrete hunks.\n\nSPEC:\n${spec}\n\nELIGIBLE CANDIDATES:\n${JSON.stringify(judgePayload, null, 2)}`,
-  { label: 'judge [Fable 5]', phase: 'Judge', model: 'fable', schema: JUDGE_SCHEMA }
+  { label: 'judge [Fable 5.1]', phase: 'Judge', model: 'fable', schema: JUDGE_SCHEMA }
 )
 
 // Never trust a model-returned path. Resolve the path from the known eligible lane record.

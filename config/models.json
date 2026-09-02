@@ -1,6 +1,6 @@
 {
   "_doc": "Omnicode model policy. Explicit vendor IDs are verified against authenticated local catalogs; Claude aliases intentionally track the latest model in each tier.",
-  "verified_at": "2026-08-16",
+  "verified_at": "2026-09-02",
   "sources": [
     "https://platform.claude.com/docs/en/about-claude/models/overview",
     "https://developers.openai.com/codex/models",
@@ -18,19 +18,19 @@
     },
     "architecture_advisor": {
       "alias": "fable",
-      "resolved": "claude-fable-5",
+      "resolved": "claude-fable-5-1",
       "context_window": 1000000,
       "reasoning": "adaptive"
     },
     "rjv_implementer": {
-      "alias": "opus",
-      "resolved": "claude-opus-5",
+      "alias": "fable",
+      "resolved": "claude-fable-5-1",
       "context_window": 1000000,
       "reasoning": "adaptive, default high"
     },
     "rjv_judge": {
       "alias": "fable",
-      "resolved": "claude-fable-5",
+      "resolved": "claude-fable-5-1",
       "context_window": 1000000,
       "reasoning": "adaptive"
     }

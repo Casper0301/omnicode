@@ -72,8 +72,9 @@ assert 'codex' in g and 'dcode' in g" 2>/dev/null; then
 else fail "quota_groups.openai must contain codex and dcode"; fi
 if python3 -c "
 import json; m=json.load(open('$H/.claude/omnicode/models.json'))
-assert m['claude']['architecture_advisor']['resolved']=='claude-fable-5'
-assert m['claude']['rjv_implementer']['resolved']=='claude-opus-5'
+assert m['claude']['architecture_advisor']['resolved']=='claude-fable-5-1'
+assert m['claude']['rjv_implementer']['resolved']=='claude-fable-5-1'
+assert m['claude']['rjv_judge']['resolved']=='claude-fable-5-1'
 assert m['codex']['model']=='gpt-5.6-sol' and m['codex']['context_window']==272000 and m['codex']['reasoning_effort']=='max'
 assert m['grok']['model']=='grok-4.6' and m['grok']['context_window']==500000 and m['grok']['routine_reasoning_effort']=='high' and m['grok']['rjv_reasoning_effort']=='xhigh'
 assert m['glm']['resolved']=='glm-5.3[1m]' and m['glm']['context_window']==1000000 and m['glm']['reasoning_effort']=='max'
@@ -186,9 +187,13 @@ if grep -qiE 'antigravity|gemini|\bagy\b' "$H/.claude/workflows/race-and-judge.m
 else pass "race-and-judge has no Gemini/Antigravity lane"; fi
 if grep -q 'grok-4.6' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
    && grep -q -- '--reasoning-effort xhigh' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
-   && grep -q "model: 'fable'" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
-  pass "RJV uses Grok 4.6 xhigh and a Fable judge"
+   && grep -q "model: 'fable'" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
+   && grep -q "claude-fable-5-1" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
+  pass "RJV uses Grok 4.6 xhigh and Fable 5.1"
 else fail "RJV model/effort policy is stale"; fi
+if grep -q "model: 'opus'" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
+  fail "RJV still uses Opus as the Claude implementer"
+else pass "RJV Claude implementer is not Opus"; fi
 if grep -q 'diffText' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
    && grep -q 'verifyCmdPassed' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
   pass "RJV serves diffs to the judge and requires verifier re-run"
@@ -211,7 +216,7 @@ if [ -f "$H/.claude/skills/rjv/SKILL.md" ]; then
   if grep -qiE '\bagy\b|grok 4\.5|gemini 3\.1|antigravity-implementer' "$H/.claude/skills/rjv/SKILL.md"; then
     fail "rjv skill advertises a retired/stale model"
   elif grep -q 'Grok 4.6' "$H/.claude/skills/rjv/SKILL.md" \
-       && grep -q 'Fable 5' "$H/.claude/skills/rjv/SKILL.md"; then
+       && grep -q 'Fable 5.1' "$H/.claude/skills/rjv/SKILL.md"; then
     pass "rjv skill matches the current model policy"
   else fail "rjv skill is missing current Grok/Fable routing"; fi
 else warn "rjv skill missing"; fi

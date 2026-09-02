@@ -27,11 +27,11 @@ The current session is the architect and final authority. Subscription-backed ex
 | Role | Model | Context | Reasoning |
 |---|---|---:|---|
 | Wrapper supervisor | latest `sonnet` alias → Sonnet 5 | 1M | adaptive/high default |
-| Architecture advisor | latest `fable` alias → Fable 5 | 1M | adaptive |
+| Architecture advisor | latest `fable` alias → Fable 5.1 | 1M | adaptive |
 | Correctness / dcode | `gpt-5.6-sol` | 272K subscription cap (258.4K effective) | `max`; never `ultra` |
 | Routine code / review | `grok-4.6` | 500K | `high` routine; `xhigh` only in RJV |
 | Long-context / verifier | `glm --model opus` → `glm-5.3[1m]` | 1M | launcher-enforced `max` |
-| RJV Claude implementer / judge | Opus 5 / Fable 5 | 1M each | adaptive |
+| RJV Claude implementer / judge | Fable 5.1 / Fable 5.1 | 1M each | adaptive |
 
 The machine-readable source is `~/Projects/omnicode/config/models.json`. Claude aliases intentionally follow the latest tier. Grok and Codex use explicit authenticated model IDs. Input guidance: up to 258K all lanes fit; 258K–500K use Grok/Claude/GLM; 500K–1M use Claude or GLM; above 1M chunk the task.
 

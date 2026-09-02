@@ -116,7 +116,8 @@ class LanePickAllowlistTest(unittest.TestCase):
 class ModelPolicyTest(unittest.TestCase):
     def test_latest_models_contexts_and_efforts_are_pinned(self):
         models = json.loads((ROOT / "config" / "models.json").read_text(encoding="utf-8"))
-        self.assertEqual(models["claude"]["architecture_advisor"]["resolved"], "claude-fable-5")
+        self.assertEqual(models["claude"]["architecture_advisor"]["resolved"], "claude-fable-5-1")
+        self.assertEqual(models["claude"]["rjv_implementer"]["resolved"], "claude-fable-5-1")
         self.assertEqual(models["claude"]["rjv_implementer"]["context_window"], 1_000_000)
         self.assertEqual(models["codex"]["model"], "gpt-5.6-sol")
         self.assertEqual(models["codex"]["context_window"], 272_000)
@@ -142,7 +143,9 @@ class ModelPolicyTest(unittest.TestCase):
         self.assertIn("-m grok-4.6 --reasoning-effort xhigh", workflow)
         self.assertIn("model: 'fable'", workflow)
         self.assertIn("Grok 4.6", rjv_skill)
-        self.assertIn("Fable 5", rjv_skill)
+        self.assertIn("Fable 5.1", rjv_skill)
+        self.assertNotIn("model: 'opus'", workflow)
+        self.assertIn("claude-fable-5-1", workflow)
 
     def test_ladders_use_latest_grok_as_first_cross_vendor_review(self):
         ladders = json.loads((ROOT / "config" / "ladders.json").read_text(encoding="utf-8"))

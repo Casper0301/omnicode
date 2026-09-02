@@ -30,7 +30,7 @@ The repo versions the system. `scripts/pull.sh` syncs live → repo with a secre
 | `config/models.json` | Verified model IDs, context windows, and role-specific reasoning policy |
 | `config/ladders.json` | Ordered fallback ladders and shared quota groups |
 | `agents/` | Active Claude Code wrapper agents: Fable advisor, Codex, Grok, GLM, dcode |
-| `workflows/race-and-judge.mjs` | High-stakes race: Opus 5 / GPT-5.6-Sol max / Grok 4.6 xhigh; Fable 5 judges; GLM-5.3 max verifies |
+| `workflows/race-and-judge.mjs` | High-stakes race: Fable 5.1 / GPT-5.6-Sol max / Grok 4.6 xhigh; Fable 5.1 judges; GLM-5.3 max verifies |
 | `skill/SKILL.md` | Harness-aware operational interface discovered by Pi and Claude Code |
 | `skills/rjv/SKILL.md` | Repo-owned high-stakes race companion skill |
 | `doctrine/` | Versioned copy of the external doctrine source |
@@ -41,11 +41,11 @@ The repo versions the system. `scripts/pull.sh` syncs live → repo with a secre
 | Role | Model | Context | Reasoning |
 |---|---|---:|---|
 | Claude supervisors | Sonnet 5 (`sonnet` alias) | 1M | adaptive/high default |
-| Architecture advisor | Fable 5 (`fable` alias) | 1M | adaptive |
+| Architecture advisor | Fable 5.1 (`fable` alias) | 1M | adaptive |
 | Correctness / dcode | GPT-5.6-Sol | 272K subscription cap, 258.4K effective | max; never ultra |
 | Routine code / review | Grok 4.6 | 500K | high; xhigh only in RJV |
 | Long-context / verify | GLM-5.3 (`glm --model opus`) | 1M | max |
-| RJV judge | Fable 5 | 1M | adaptive |
+| RJV Claude implementer / judge | Fable 5.1 | 1M | adaptive |
 
 Claude aliases intentionally follow the latest model in that tier. Grok and Codex are explicit pins validated against the authenticated CLI catalogs. OpenAI's API model supports a larger context, but Omnicode stays on ChatGPT subscription auth, whose local Codex catalog currently caps GPT-5.6-Sol at 272K.
 
