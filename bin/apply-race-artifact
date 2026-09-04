@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Apply only the exact race artifact bytes reviewed and verified by the workflow.
+set -euo pipefail
+
+MAX_ARTIFACT_BYTES=80000
+race_dir=""
+artifact=""
+expected_sha=""
+expected_bytes=""
+verify_cmd=""
+
+usage() {
+  echo "usage: apply-race-artifact --race-dir DIR --artifact FILE --sha256 HEX --bytes N --verify-cmd COMMAND" >&2
+  exit 2
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --race-dir) [ "$#" -ge 2 ] || usage; race_dir="$2"; shift 2 ;;
+    --artifact) [ "$#" -ge 2 ] || usage; artifact="$2"; shift 2 ;;
+    --sha256) [ "$#" -ge 2 ] || usage; expected_sha="$2"; shift 2 ;;
+    --bytes) [ "$#" -ge 2 ] || usage; expected_bytes="$2"; shift 2 ;;
+    --verify-cmd) [ "$#" -ge 2 ] || usage; verify_cmd="$2"; shift 2 ;;
+    *) usage ;;
+  esac
+done
+
+[ -n "$race_dir" ] && [ -n "$artifact" ] && [ -n "$expected_sha" ] && [ -n "$expected_bytes" ] && [ -n "$verify_cmd" ] || usage
+[[ "$expected_sha" =~ ^[a-f0-9]{64}$ ]] || { echo "invalid expected SHA-256" >&2; exit 2; }
+[[ "$expected_bytes" =~ ^[0-9]+$ ]] || { echo "invalid expected byte count" >&2; exit 2; }
+[ "$expected_bytes" -gt 0 ] && [ "$expected_bytes" -le "$MAX_ARTIFACT_BYTES" ] || { echo "artifact byte count outside allowed range" >&2; exit 2; }
+
+[ -d "$race_dir" ] && [ ! -L "$race_dir" ] || { echo "race directory is missing or symlinked" >&2; exit 1; }
+[ -e "$artifact" ] && [ ! -L "$artifact" ] && [ -f "$artifact" ] || { echo "artifact is missing, symlinked, or not regular" >&2; exit 1; }
+race_real="$(realpath "$race_dir")"
+artifact_real="$(realpath "$artifact")"
+case "$artifact_real" in
+  "$race_real"/*) ;;
+  *) echo "artifact escapes canonical race directory" >&2; exit 1 ;;
+esac
+
+file_bytes() {
+  if stat -f %z "$1" >/dev/null 2>&1; then stat -f %z "$1"; else stat -c %s "$1"; fi
+}
+file_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+
+actual_bytes="$(file_bytes "$artifact_real")"
+actual_sha="$(file_sha256 "$artifact_real")"
+[ "$actual_bytes" = "$expected_bytes" ] || { echo "artifact byte count changed" >&2; exit 1; }
+[ "$actual_sha" = "$expected_sha" ] || { echo "artifact SHA-256 changed" >&2; exit 1; }
+if LC_ALL=C grep -Eq '^GIT binary patch$|^Binary files .* differ$' "$artifact_real"; then
+  echo "binary artifacts are not reviewable by this workflow" >&2
+  exit 1
+fi
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "current directory is not a git repository" >&2; exit 1; }
+[ -z "$(git status --porcelain=v1)" ] || { echo "refusing to apply into a dirty working tree" >&2; exit 1; }
+
+snapshot="$(mktemp "${TMPDIR:-/tmp}/omnicode-reviewed-artifact.XXXXXX")"
+applied=0
+cleanup() {
+  status=$?
+  if [ "$status" -ne 0 ] && [ "$applied" -eq 1 ]; then
+    git apply -R --index --binary "$snapshot" >/dev/null 2>&1 || echo "warning: automatic rollback failed; inspect the exact staged patch" >&2
+  fi
+  rm -f -- "$snapshot"
+  trap - EXIT INT TERM
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+cp -- "$artifact_real" "$snapshot"
+chmod 600 "$snapshot"
+[ "$(file_bytes "$snapshot")" = "$expected_bytes" ] || { echo "snapshot byte count mismatch" >&2; exit 1; }
+[ "$(file_sha256 "$snapshot")" = "$expected_sha" ] || { echo "snapshot SHA-256 mismatch" >&2; exit 1; }
+git apply --check --binary "$snapshot"
+git apply --index --binary "$snapshot"
+applied=1
+bash -lc "$verify_cmd"
+applied=0
+echo "applied reviewed artifact sha256=$expected_sha bytes=$expected_bytes; verification passed"

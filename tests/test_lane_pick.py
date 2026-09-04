@@ -196,6 +196,14 @@ class ModelPolicyTest(unittest.TestCase):
         self.assertIn("-m gpt-6-astra", codex_agent)
         self.assertIn("-M openai_codex:gpt-6-astra", dcode_agent)
         self.assertIn("-m gpt-6-astra -c model_reasoning_effort=max", workflow)
+        self.assertIn("completeArtifactText", workflow)
+        self.assertIn("completeArtifactText", doctor)
+        self.assertIn("raceRunId: '<unique-safe-id>'", rjv_skill)
+        self.assertIn("completeArtifactText", rjv_skill)
+        self.assertIn("artifactSha256", rjv_skill)
+        self.assertIn("apply.command", rjv_skill)
+        self.assertNotIn("diffText", rjv_skill)
+        self.assertNotIn("applies the known diff", rjv_skill)
 
     def test_doctor_checks_codex_by_slug_and_default_context(self):
         doctor = (ROOT / "bin" / "omnicode-doctor").read_text(encoding="utf-8")
@@ -232,6 +240,61 @@ class ModelPolicyTest(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_doctor_accepts_only_canonical_skill_and_empty_real_generic_roots(self):
+        doctor = (ROOT / "bin" / "omnicode-doctor").read_text(encoding="utf-8")
+        probe = re.search(
+            r"(if grep -qE 'stash or reset them.*?)(?=if \[ -f \"\$H/\.claude/skills/rjv/SKILL\.md\")",
+            doctor,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(probe)
+        shell = (
+            'set -uo pipefail\nH="$1"\nPASS=0\nFAIL=0\n'
+            'pass() { PASS=$((PASS+1)); printf "[PASS] %s\\n" "$*"; }\n'
+            'fail() { FAIL=$((FAIL+1)); printf "[FAIL] %s\\n" "$*"; }\n'
+            + probe.group(1)
+            + '\n[ "$FAIL" -eq 0 ]\n'
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            canonical = home / ".claude" / "skills"
+            agents = home / ".agents" / "skills"
+            cursor = home / ".cursor" / "skills"
+            source = home / "Projects" / "omnicode" / "skill"
+            for directory in (canonical, agents, cursor, source):
+                directory.mkdir(parents=True)
+            (source / "SKILL.md").write_text("safe omnicode guidance\n", encoding="utf-8")
+            (canonical / "omnicode").symlink_to(source, target_is_directory=True)
+
+            def run_probe():
+                return subprocess.run(
+                    ["bash", "-c", shell, "doctor-skill-topology", str(home)],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+
+            accepted = run_probe()
+            self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+
+            marker = agents / "unexpected-skill"
+            marker.write_text("must stay empty\n", encoding="utf-8")
+            self.assertNotEqual(run_probe().returncode, 0)
+            marker.unlink()
+
+            cursor.rmdir()
+            cursor.symlink_to(canonical, target_is_directory=True)
+            self.assertNotEqual(run_probe().returncode, 0)
+            cursor.unlink()
+            cursor.mkdir()
+
+            (source / "SKILL.md").unlink()
+            missing = run_probe()
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("skill file missing", missing.stdout)
 
     def test_ladders_use_latest_grok_as_first_cross_vendor_review(self):
         ladders = json.loads((ROOT / "config" / "ladders.json").read_text(encoding="utf-8"))
@@ -329,19 +392,18 @@ class LanesExitPropagationTest(unittest.TestCase):
 
 class ApplySafetyTest(unittest.TestCase):
     def test_apply_refuses_to_replace_existing_skill_content(self):
-        for root in (".agents", ".claude"):
-            for collision in ("file", "directory"):
-                with self.subTest(root=root, collision=collision), tempfile.TemporaryDirectory() as temp:
-                    self._assert_apply_refuses_collision(Path(temp), root, collision)
+        for collision in ("file", "directory"):
+            with self.subTest(collision=collision), tempfile.TemporaryDirectory() as temp:
+                self._assert_apply_refuses_collision(Path(temp), collision)
 
-    def _assert_apply_refuses_collision(self, home, root, collision):
+    def _assert_apply_refuses_collision(self, home, collision):
         (home / ".local" / "bin").mkdir(parents=True)
         (home / ".uib" / "node_modules" / "playwright").mkdir(parents=True)
         (home / ".claude" / "skills").mkdir(parents=True)
-        (home / ".agents").mkdir(parents=True)
-        (home / ".agents" / "skills").symlink_to(home / ".claude" / "skills", target_is_directory=True)
+        (home / ".agents" / "skills").mkdir(parents=True)
+        (home / ".cursor" / "skills").mkdir(parents=True)
         (home / "Library" / "LaunchAgents").mkdir(parents=True)
-        target = home / root / "skills" / "omnicode"
+        target = home / ".claude" / "skills" / "omnicode"
         if collision == "file":
             target.write_text("keep me\n", encoding="utf-8")
         else:
@@ -367,24 +429,70 @@ class ApplySafetyTest(unittest.TestCase):
             self.assertEqual((target / "keep-me").read_text(encoding="utf-8"), "keep me\n")
         self.assertIn("refus", result.stderr.lower())
 
-    def test_apply_refuses_a_real_agents_skills_directory(self):
-        with tempfile.TemporaryDirectory() as temp:
-            home = Path(temp)
-            (home / ".agents" / "skills").mkdir(parents=True)
-            (home / ".claude" / "skills").mkdir(parents=True)
-            marker = home / ".agents" / "skills" / "keep-me"
-            marker.write_text("keep me\n", encoding="utf-8")
-            result = subprocess.run(
-                [str(ROOT / "scripts" / "apply.sh")],
-                env={**os.environ, "HOME": str(home)},
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
-            self.assertIn("unsafe skills root", result.stderr)
+    def test_apply_refuses_nonempty_generic_skill_roots(self):
+        for generic_root in (".agents", ".cursor"):
+            with self.subTest(generic_root=generic_root), tempfile.TemporaryDirectory() as temp:
+                home = Path(temp)
+                (home / generic_root / "skills").mkdir(parents=True)
+                (home / ".claude" / "skills").mkdir(parents=True)
+                marker = home / generic_root / "skills" / "keep-me"
+                marker.write_text("keep me\n", encoding="utf-8")
+                result = subprocess.run(
+                    [str(ROOT / "scripts" / "apply.sh")],
+                    env={**os.environ, "HOME": str(home)},
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(marker.read_text(encoding="utf-8"), "keep me\n")
+                self.assertIn("generic skills root must be empty", result.stderr)
+
+    def test_apply_refuses_generic_skill_root_symlinks_without_migration(self):
+        for generic_root in (".agents", ".cursor"):
+            with self.subTest(generic_root=generic_root), tempfile.TemporaryDirectory() as temp:
+                home = Path(temp)
+                (home / ".local" / "bin").mkdir(parents=True)
+                (home / ".uib" / "node_modules" / "playwright").mkdir(parents=True)
+                canonical = home / ".claude" / "skills"
+                canonical.mkdir(parents=True)
+                marker = canonical / "keep-me"
+                marker_bytes = b"canonical content\n"
+                marker.write_bytes(marker_bytes)
+                for root_name in (".agents", ".cursor"):
+                    root = home / root_name / "skills"
+                    root.parent.mkdir(parents=True)
+                    if root_name == generic_root:
+                        root.symlink_to(canonical, target_is_directory=True)
+                    else:
+                        root.mkdir()
+                alias = home / generic_root / "skills"
+                original_link = os.readlink(alias)
+                (home / "Library" / "LaunchAgents").mkdir(parents=True)
+                launchctl = home / ".local" / "bin" / "launchctl"
+                launchctl.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                launchctl.chmod(launchctl.stat().st_mode | stat.S_IXUSR)
+
+                result = subprocess.run(
+                    [str(ROOT / "scripts" / "apply.sh")],
+                    env={
+                        **os.environ,
+                        "HOME": str(home),
+                        "PATH": f"{home / '.local' / 'bin'}:/usr/bin:/bin",
+                    },
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(alias.is_symlink())
+                self.assertEqual(os.readlink(alias), original_link)
+                self.assertEqual(marker.read_bytes(), marker_bytes)
+                self.assertEqual([path.name for path in canonical.iterdir()], ["keep-me"])
+                self.assertIn("skill-tiers.py apply", result.stderr)
 
     def test_apply_installs_goal_executable(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -392,7 +500,10 @@ class ApplySafetyTest(unittest.TestCase):
             (home / ".local" / "bin").mkdir(parents=True)
             (home / ".uib" / "node_modules" / "playwright").mkdir(parents=True)
             (home / ".claude" / "skills").mkdir(parents=True)
-            (home / ".agents").mkdir(parents=True)
+            (home / ".agents" / "skills").mkdir(parents=True)
+            (home / ".cursor" / "skills").mkdir(parents=True)
+            canonical_marker = home / ".claude" / "skills" / "keep-me"
+            canonical_marker.write_text("canonical content\n", encoding="utf-8")
             (home / "Library" / "LaunchAgents").mkdir(parents=True)
             launchctl = home / ".local" / "bin" / "launchctl"
             launchctl.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -412,14 +523,20 @@ class ApplySafetyTest(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue((home / ".agents" / "skills").is_symlink())
-            self.assertEqual(
-                (home / ".agents" / "skills").resolve(),
-                (home / ".claude" / "skills").resolve(),
-            )
+            for generic_root in (home / ".agents" / "skills", home / ".cursor" / "skills"):
+                self.assertTrue(generic_root.is_dir())
+                self.assertFalse(generic_root.is_symlink())
+                self.assertEqual(list(generic_root.iterdir()), [])
+            self.assertEqual(canonical_marker.read_text(encoding="utf-8"), "canonical content\n")
+            omnicode = home / ".claude" / "skills" / "omnicode"
+            self.assertTrue(omnicode.is_symlink())
+            self.assertEqual(omnicode.resolve(), (ROOT / "skill").resolve())
             goal = home / ".local" / "bin" / "goal"
             self.assertTrue(goal.is_file())
             self.assertTrue(os.access(goal, os.X_OK))
+            apply_race = home / ".local" / "bin" / "apply-race-artifact"
+            self.assertTrue(apply_race.is_file())
+            self.assertTrue(os.access(apply_race, os.X_OK))
             installed_models = home / ".claude" / "omnicode" / "models.json"
             self.assertEqual(
                 json.loads(installed_models.read_text(encoding="utf-8"))["grok"]["model"],

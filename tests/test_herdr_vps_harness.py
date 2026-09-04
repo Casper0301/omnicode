@@ -899,7 +899,13 @@ class HerdrVpsHarnessSyncTests(unittest.TestCase):
                 (remote_home / ".claude" / "workflows" / "race-and-judge.mjs").read_bytes(),
                 (REPO / "workflows" / "race-and-judge.mjs").read_bytes(),
             )
-            for wrapper in ("lanes", "lane-pick", "goal", "omnicode-doctor"):
+            for wrapper in (
+                "lanes",
+                "lane-pick",
+                "goal",
+                "omnicode-doctor",
+                "apply-race-artifact",
+            ):
                 installed = remote_home / ".local" / "bin" / wrapper
                 self.assertEqual(installed.read_bytes(), (REPO / "bin" / wrapper).read_bytes())
                 self.assertNotEqual(installed.stat().st_mode & 0o111, 0)

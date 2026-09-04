@@ -32,6 +32,7 @@ required_local_paths=(
   "$REPO/bin/lane-pick"
   "$REPO/bin/goal"
   "$REPO/bin/omnicode-doctor"
+  "$REPO/bin/apply-race-artifact"
   "$HOME/.local/bin/glm"
   "$HOME/.claude/bin/dcode-launcher"
 )
@@ -200,6 +201,7 @@ PORTABLE_FILES=(
   "$REPO/bin/lane-pick"
   "$REPO/bin/goal"
   "$REPO/bin/omnicode-doctor"
+  "$REPO/bin/apply-race-artifact"
   "$HOME/.local/bin/glm"
   "$HOME/.claude/bin/dcode-launcher"
 )
@@ -407,6 +409,7 @@ managed_files=(
   "$expected_home/.local/bin/lane-pick"
   "$expected_home/.local/bin/goal"
   "$expected_home/.local/bin/omnicode-doctor"
+  "$expected_home/.local/bin/apply-race-artifact"
   "$expected_home/.local/bin/glm"
   "$expected_home/.claude/bin/dcode-launcher"
 )
@@ -660,6 +663,7 @@ sync_executable "$REPO/bin/lanes" "/home/user/.local/bin/lanes"
 sync_executable "$REPO/bin/lane-pick" "/home/user/.local/bin/lane-pick"
 sync_executable "$REPO/bin/goal" "/home/user/.local/bin/goal"
 sync_executable "$REPO/bin/omnicode-doctor" "/home/user/.local/bin/omnicode-doctor"
+sync_executable "$REPO/bin/apply-race-artifact" "/home/user/.local/bin/apply-race-artifact"
 
 # GLM is a required text wrapper plus an individually allowlisted token.
 sync_executable "$HOME/.local/bin/glm" "/home/user/.local/bin/glm"
@@ -735,6 +739,7 @@ for executable in \
   "$expected_home/.local/bin/lane-pick" \
   "$expected_home/.local/bin/goal" \
   "$expected_home/.local/bin/omnicode-doctor" \
+  "$expected_home/.local/bin/apply-race-artifact" \
   "$expected_home/.local/bin/glm"; do
   if [[ -e "$executable" || -L "$executable" ]]; then
     [[ -f "$executable" && ! -L "$executable" ]]

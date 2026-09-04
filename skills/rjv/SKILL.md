@@ -12,21 +12,21 @@ Use RJV only when a wrong result is expensive: correctness-critical logic, migra
 1. Confirm the task is genuinely high-stakes.
 2. Start from a clean committed baseline or dedicated worktree. Never auto-stash/reset shared work.
 3. Write the five-part spec: Objective · Files · Interfaces · Constraints · trusted Verification command.
-4. Run:
+4. Create a fresh caller-generated `raceRunId` for this invocation (1–80 letters, numbers, `.`, `_`, or `-`; never reuse one), then run:
 
 ```text
-Workflow({ scriptPath: '~/.claude/workflows/race-and-judge.mjs', args: { spec: '<five-part spec>', verifyCmd: '<trusted proof command>' } })
+Workflow({ scriptPath: '~/.claude/workflows/race-and-judge.mjs', args: { spec: '<five-part spec>', verifyCmd: '<trusted proof command>', raceRunId: '<unique-safe-id>' } })
 ```
 
 5. Three isolated implementations race:
    - Claude Fable 5.1, 1M context, adaptive reasoning
    - GPT-6 Astra, max reasoning, 272K configured context (258.4K effective)
    - Grok 4.6, xhigh reasoning, 500K context
-6. Claude Fable 5.1 (1M context) judges only complete, independently verified candidates **from their served `diffText`**, not from summaries.
-7. GLM-5.3 (1M context, max reasoning) adversarially verifies the winner **and re-runs the trusted verification command**.
-8. Apply nothing unless `readyToApply: true` (sound + `verifyCmdPassed`). The architect then applies the known diff, inspects it, and re-runs the verification command.
+6. Claude Fable 5.1 (1M context) judges each complete `completeArtifactText` and binds its choice to the workflow-computed `artifactSha256` and byte count.
+7. GLM-5.3 (1M context, max reasoning) adversarially verifies that same digest-bound artifact and re-runs the trusted verification command.
+8. Apply nothing unless `readyToApply: true` and `apply.command` is present. From the clean target repo, run exactly `apply.command`; never reconstruct or manually apply a diff. Inspect the staged result and the helper's verification output.
 
-Implementers do not see each other's work. The spec is the only shared task state during the race. After the race, `diffText` is the state the judge and verifier get.
+Implementers do not see each other's work. The spec is the only shared task state during the race. The returned `completeArtifactText`, its workflow-computed digest, and the guarded helper are the apply authority—not model-reported filesystem state.
 
 ## Fail closed
 

@@ -201,22 +201,30 @@ else fail "RJV model/effort policy is stale"; fi
 if grep -q "model: 'opus'" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
   fail "RJV still uses Opus as the Claude implementer"
 else pass "RJV Claude implementer is not Opus"; fi
-if grep -q 'diffText' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
+if grep -q 'completeArtifactText' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
+   && grep -q 'reviewedArtifactSha256' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
+   && grep -q 'verifiedArtifactSha256' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
    && grep -q 'verifyCmdPassed' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
-  pass "RJV serves diffs to the judge and requires verifier re-run"
-else fail "RJV no longer serves diffText / verifyCmdPassed"; fi
-if grep -qE 'stash or reset them|git stash|reset --hard|stash -u' "$H/.agents/skills/omnicode/SKILL.md" 2>/dev/null; then
+  pass "RJV serves complete digest-bound artifacts and requires verifier re-run"
+else fail "RJV complete artifact / digest / verifier binding is missing"; fi
+if grep -qE 'stash or reset them|git stash|reset --hard|stash -u' "$H/.claude/skills/omnicode/SKILL.md" 2>/dev/null; then
   fail "omnicode skill contains destructive fallback cleanup guidance"
-else pass "omnicode skill bans destructive fallback cleanup"; fi
-if [ -L "$H/.agents/skills" ] \
-   && [ "$(realpath "$H/.agents/skills" 2>/dev/null)" = "$(realpath "$H/.claude/skills" 2>/dev/null)" ]; then
-  pass "shared agent skills root safely points to Claude skills"
-else fail "~/.agents/skills must remain a symlink to ~/.claude/skills"; fi
-if [ "$(readlink "$H/.agents/skills/omnicode" 2>/dev/null)" = "$H/Projects/omnicode/skill" ] \
+elif [ -f "$H/.claude/skills/omnicode/SKILL.md" ]; then
+  pass "omnicode skill bans destructive fallback cleanup"
+else fail "omnicode canonical skill file missing — run scripts/apply.sh"; fi
+if [ -d "$H/.claude/skills" ] && [ ! -L "$H/.claude/skills" ]; then
+  pass "canonical Claude skills root is a real directory"
+else fail "~/.claude/skills must remain a real directory"; fi
+for generic_root in "$H/.agents/skills" "$H/.cursor/skills"; do
+  if [ -d "$generic_root" ] && [ ! -L "$generic_root" ] \
+     && [ -z "$(find "$generic_root" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+    pass "generic skills root is a real empty directory: $generic_root"
+  else fail "generic skills root must remain a real empty directory: $generic_root"; fi
+done
+if [ -L "$H/.claude/skills/omnicode" ] \
    && [ "$(readlink "$H/.claude/skills/omnicode" 2>/dev/null)" = "$H/Projects/omnicode/skill" ] \
-   && [ -f "$H/.agents/skills/omnicode/SKILL.md" ] \
    && [ -f "$H/.claude/skills/omnicode/SKILL.md" ]; then
-  pass "omnicode skill symlinked into shared + Claude roots"
+  pass "omnicode skill linked into the canonical Claude root"
 else fail "omnicode skill symlink missing/wrong — run scripts/apply.sh"; fi
 if [ -f "$H/.claude/skills/rjv/SKILL.md" ]; then
   pass "rjv skill present"

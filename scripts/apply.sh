@@ -6,27 +6,43 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 H="$HOME"
 CLAUDE_SKILLS="$H/.claude/skills"
 AGENT_SKILLS="$H/.agents/skills"
-mkdir -p "$CLAUDE_SKILLS" "$H/.agents"
-if [[ -e "$AGENT_SKILLS" || -L "$AGENT_SKILLS" ]]; then
-  if [[ ! -L "$AGENT_SKILLS" ]] || [[ "$(realpath "$AGENT_SKILLS")" != "$(realpath "$CLAUDE_SKILLS")" ]]; then
-    echo "refusing unsafe skills root (must symlink to $CLAUDE_SKILLS): $AGENT_SKILLS" >&2
-    exit 1
-  fi
-else
-  ln -s "$CLAUDE_SKILLS" "$AGENT_SKILLS"
+CURSOR_SKILLS="$H/.cursor/skills"
+mkdir -p "$H/.claude" "$H/.agents" "$H/.cursor"
+if [[ -L "$CLAUDE_SKILLS" ]] || { [[ -e "$CLAUDE_SKILLS" ]] && [[ ! -d "$CLAUDE_SKILLS" ]]; }; then
+  echo "refusing unsafe canonical skills library (must be a real directory): $CLAUDE_SKILLS" >&2
+  exit 1
 fi
+mkdir -p "$CLAUDE_SKILLS"
 
-SKILL_LINKS=(
-  "$AGENT_SKILLS/omnicode"
-  "$CLAUDE_SKILLS/omnicode"
-)
-
-for skill_link in "${SKILL_LINKS[@]}"; do
-  if [[ -e "$skill_link" && ! -L "$skill_link" ]]; then
-    echo "refusing to replace existing non-symlink skill content: $skill_link" >&2
+ensure_empty_generic_root() {
+  local root="$1" first_entry
+  if [[ -L "$root" ]]; then
+    echo "refusing generic skills root symlink: $root; run ~/.claude/bin/skill-tiers.py apply first" >&2
     exit 1
+  elif [[ -e "$root" ]]; then
+    if [[ ! -d "$root" ]]; then
+      echo "refusing unsafe generic skills root (must be a real empty directory): $root" >&2
+      exit 1
+    fi
+    first_entry="$(find "$root" -mindepth 1 -maxdepth 1 -print -quit)"
+    if [[ -n "$first_entry" ]]; then
+      echo "refusing generic skills root must be empty: $root (found $first_entry)" >&2
+      exit 1
+    fi
+  else
+    mkdir -p "$root"
   fi
-done
+}
+
+ensure_empty_generic_root "$AGENT_SKILLS"
+ensure_empty_generic_root "$CURSOR_SKILLS"
+
+SKILL_LINK="$CLAUDE_SKILLS/omnicode"
+
+if [[ -e "$SKILL_LINK" && ! -L "$SKILL_LINK" ]]; then
+  echo "refusing to replace existing non-symlink skill content: $SKILL_LINK" >&2
+  exit 1
+fi
 
 echo "== apply: $REPO -> live system"
 
@@ -48,6 +64,7 @@ install_bin "$REPO/bin/uib"              "$H/.local/bin/uib"
 install_bin "$REPO/bin/omnicode-doctor"  "$H/.local/bin/omnicode-doctor"
 install_bin "$REPO/bin/herdr-vps"        "$H/.local/bin/herdr-vps"
 install_bin "$REPO/bin/herdr-open-url"   "$H/.local/bin/herdr-open-url"
+install_bin "$REPO/bin/apply-race-artifact" "$H/.local/bin/apply-race-artifact"
 
 mkdir -p "$H/.uib" "$H/.claude/omnicode" "$H/.claude/agents" "$H/.claude/workflows" "$CLAUDE_SKILLS" "$H/.omnicode"
 cp "$REPO/uib/uib.mjs"      "$H/.uib/uib.mjs"
@@ -71,11 +88,9 @@ rm -f "$H/.claude/agents/antigravity-implementer.md" \
 
 cp "$REPO/workflows/race-and-judge.mjs" "$H/.claude/workflows/race-and-judge.mjs"
 
-# Skills: Omnicode is symlinked; the small RJV companion is copied so this
-# repo remains the source of truth without replacing the shared skills root.
-for skill_link in "${SKILL_LINKS[@]}"; do
-  ln -sfn "$REPO/skill" "$skill_link"
-done
+# Skills: the canonical Claude library is the only full skill library. Generic
+# discovery roots stay empty, and Omnicode exists only at its canonical path.
+ln -sfn "$REPO/skill" "$SKILL_LINK"
 mkdir -p "$H/.claude/skills/rjv"
 cp "$REPO/skills/rjv/SKILL.md" "$H/.claude/skills/rjv/SKILL.md"
 
