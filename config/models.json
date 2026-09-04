@@ -1,6 +1,6 @@
 {
   "_doc": "Omnicode model policy. Explicit vendor IDs are verified against authenticated local catalogs; Claude aliases intentionally track the latest model in each tier.",
-  "verified_at": "2026-09-02",
+  "verified_at": "2026-09-04",
   "sources": [
     "https://platform.claude.com/docs/en/about-claude/models/overview",
     "https://developers.openai.com/codex/models",
@@ -36,13 +36,13 @@
     }
   },
   "codex": {
-    "model": "gpt-5.6-sol",
+    "model": "gpt-6-astra",
     "context_window": 272000,
     "effective_context_percent": 95,
     "effective_context_window": 258400,
     "reasoning_effort": "max",
     "forbidden_effort": "ultra",
-    "note": "The ChatGPT-authenticated Codex catalog advertises 272K even though the API model supports a larger window; Omnicode never switches to API-key billing."
+    "note": "Astra's ChatGPT-authenticated catalog defaults to 272K and advertises an optional 872K maximum. Omnicode keeps 272K configured (258.4K effective), max reasoning, and subscription auth only; the larger window is not enabled."
   },
   "grok": {
     "model": "grok-4.6",
@@ -57,7 +57,7 @@
     "reasoning_effort": "max"
   },
   "dcode": {
-    "model": "openai_codex:gpt-5.6-sol",
+    "model": "openai_codex:gpt-6-astra",
     "context_window": 272000,
     "effective_context_window": 258400,
     "reasoning_effort": "max",

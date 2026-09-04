@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import subprocess
@@ -101,6 +102,40 @@ class LanePickAllowlistTest(unittest.TestCase):
         self.assertEqual(result.stdout, "glm\n")
         self.assertIn("grok", result.stderr)
 
+    def test_scan_ignores_dcode_oauth_notice_but_keeps_real_rate_limits(self):
+        notice = (
+            "openai_codex.py:547: UserWarning: `_ChatOpenAICodex` is experimental and unofficial. "
+            "You are responsible for respecting OpenAI's usage policies, rate limits, and safeguards.\n"
+        )
+        logfile = self.home / "dcode.log"
+        logfile.write_text(notice + "Task timed out\n[lanes] exit=124\n", encoding="utf-8")
+        clean = self.run_pick("scan", "dcode", str(logfile))
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        self.assertIn("scan: dcode clean", clean.stdout)
+        self.assertFalse((self.home / ".lanes" / "health.json").exists())
+
+        logfile.write_text(notice + "Error: 429 Too many requests\n", encoding="utf-8")
+        limited = self.run_pick("scan", "dcode", str(logfile))
+        self.assertEqual(limited.returncode, 0, limited.stderr)
+        health = json.loads((self.home / ".lanes" / "health.json").read_text(encoding="utf-8"))
+        for lane in ("codex", "dcode"):
+            self.assertGreater(health[lane]["until"], time.time())
+            self.assertIn("transient", health[lane]["reason"])
+
+    def test_scan_uses_final_lane_exit_not_successful_review_prose(self):
+        logfile = self.home / "review.log"
+        text = "Review: test real rate-limit and 429 errors.\n[lanes] exit=0\n"
+        logfile.write_text(text, encoding="utf-8")
+        clean = self.run_pick("scan", "codex", str(logfile))
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        self.assertIn("scan: codex clean", clean.stdout)
+        self.assertFalse((self.home / ".lanes" / "health.json").exists())
+
+        logfile.write_text(text + "Error: 429 Too many requests\n[lanes] exit=7\n", encoding="utf-8")
+        failed = self.run_pick("scan", "codex", str(logfile))
+        self.assertEqual(failed.returncode, 0, failed.stderr)
+        self.assertIn("marked codex", failed.stdout)
+
     def test_status_hides_retired_health_entries_and_qualifies_unknown_auth(self):
         (self.home / ".lanes" / "health.json").write_text(
             json.dumps({"gemini": {"until": 0, "reason": "retired"}}),
@@ -116,12 +151,17 @@ class LanePickAllowlistTest(unittest.TestCase):
 class ModelPolicyTest(unittest.TestCase):
     def test_latest_models_contexts_and_efforts_are_pinned(self):
         models = json.loads((ROOT / "config" / "models.json").read_text(encoding="utf-8"))
-        self.assertEqual(models["claude"]["architecture_advisor"]["resolved"], "claude-fable-5-1")
-        self.assertEqual(models["claude"]["rjv_implementer"]["resolved"], "claude-fable-5-1")
-        self.assertEqual(models["claude"]["rjv_implementer"]["context_window"], 1_000_000)
-        self.assertEqual(models["codex"]["model"], "gpt-5.6-sol")
+        for role in ("architecture_advisor", "rjv_implementer", "rjv_judge"):
+            self.assertEqual(models["claude"][role]["resolved"], "claude-fable-5-1")
+            self.assertEqual(models["claude"][role]["context_window"], 1_000_000)
+        self.assertEqual(models["codex"]["model"], "gpt-6-astra")
         self.assertEqual(models["codex"]["context_window"], 272_000)
+        self.assertEqual(models["codex"]["effective_context_window"], 258_400)
         self.assertEqual(models["codex"]["reasoning_effort"], "max")
+        self.assertEqual(models["codex"]["forbidden_effort"], "ultra")
+        self.assertEqual(models["dcode"]["model"], "openai_codex:gpt-6-astra")
+        self.assertEqual(models["dcode"]["reasoning_effort"], "max")
+        self.assertEqual(models["dcode"]["quota_group"], "openai")
         self.assertEqual(models["grok"]["model"], "grok-4.6")
         self.assertEqual(models["grok"]["context_window"], 500_000)
         self.assertEqual(models["grok"]["routine_reasoning_effort"], "high")
@@ -146,6 +186,52 @@ class ModelPolicyTest(unittest.TestCase):
         self.assertIn("Fable 5.1", rjv_skill)
         self.assertNotIn("model: 'opus'", workflow)
         self.assertIn("claude-fable-5-1", workflow)
+        codex_agent = (ROOT / "agents" / "codex-implementer.md").read_text(encoding="utf-8")
+        dcode_agent = (ROOT / "agents" / "dcode-implementer.md").read_text(encoding="utf-8")
+        doctor = (ROOT / "bin" / "omnicode-doctor").read_text(encoding="utf-8")
+        for content in (codex_agent, dcode_agent, workflow, skill, rjv_skill, doctor):
+            self.assertNotIn("gpt-5.6-sol", content)
+            self.assertNotIn("GPT-5.6-Sol", content)
+            self.assertRegex(content, r"gpt-6-astra|GPT-6 Astra")
+        self.assertIn("-m gpt-6-astra", codex_agent)
+        self.assertIn("-M openai_codex:gpt-6-astra", dcode_agent)
+        self.assertIn("-m gpt-6-astra -c model_reasoning_effort=max", workflow)
+
+    def test_doctor_checks_codex_by_slug_and_default_context(self):
+        doctor = (ROOT / "bin" / "omnicode-doctor").read_text(encoding="utf-8")
+        probe = re.search(
+            r'if python3 -c "(\nimport json,os\n.*?)" 2>/dev/null; then\n  pass "authenticated Codex catalog',
+            doctor,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(probe)
+        astra = {
+            "slug": "gpt-6-astra",
+            "context_window": 272000,
+            "max_context_window": 872000,
+            "supported_reasoning_levels": [{"effort": "max"}],
+        }
+        for catalog, expected in (
+            ([{"slug": "other-model"}, astra], 0),
+            ([{"slug": "other-model"}], 1),
+            ([{**astra, "context_window": 128000}], 1),
+            ([{**astra, "supported_reasoning_levels": [{"effort": "high"}]}], 1),
+        ):
+            with self.subTest(catalog=catalog), tempfile.TemporaryDirectory() as temp:
+                home = Path(temp)
+                (home / ".codex").mkdir()
+                (home / ".codex" / "models_cache.json").write_text(
+                    json.dumps({"models": catalog}), encoding="utf-8"
+                )
+                result = subprocess.run(
+                    ["python3", "-c", probe.group(1)],
+                    env={**os.environ, "HOME": str(home)},
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_ladders_use_latest_grok_as_first_cross_vendor_review(self):
         ladders = json.loads((ROOT / "config" / "ladders.json").read_text(encoding="utf-8"))
@@ -339,8 +425,13 @@ class ApplySafetyTest(unittest.TestCase):
                 json.loads(installed_models.read_text(encoding="utf-8"))["grok"]["model"],
                 "grok-4.6",
             )
+            policy = json.loads(installed_models.read_text(encoding="utf-8"))
+            self.assertEqual(policy["codex"]["model"], "gpt-6-astra")
+            self.assertEqual(policy["dcode"]["model"], "openai_codex:gpt-6-astra")
+            self.assertEqual(policy["claude"]["rjv_judge"]["resolved"], "claude-fable-5-1")
             installed_rjv = home / ".claude" / "skills" / "rjv" / "SKILL.md"
             self.assertIn("Grok 4.6", installed_rjv.read_text(encoding="utf-8"))
+            self.assertIn("GPT-6 Astra", installed_rjv.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

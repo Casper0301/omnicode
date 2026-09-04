@@ -28,7 +28,7 @@ The current session is the architect and final authority. Subscription-backed ex
 |---|---|---:|---|
 | Wrapper supervisor | latest `sonnet` alias → Sonnet 5 | 1M | adaptive/high default |
 | Architecture advisor | latest `fable` alias → Fable 5.1 | 1M | adaptive |
-| Correctness / dcode | `gpt-5.6-sol` | 272K subscription cap (258.4K effective) | `max`; never `ultra` |
+| Correctness / dcode | `gpt-6-astra` | 272K configured limit (258.4K effective) | `max`; never `ultra` |
 | Routine code / review | `grok-4.6` | 500K | `high` routine; `xhigh` only in RJV |
 | Long-context / verifier | `glm --model opus` → `glm-5.3[1m]` | 1M | launcher-enforced `max` |
 | RJV Claude implementer / judge | Fable 5.1 / Fable 5.1 | 1M each | adaptive |

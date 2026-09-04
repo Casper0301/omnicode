@@ -1,11 +1,11 @@
 ---
 name: rjv
-description: "Race-Judge-Verify for genuinely hard/high-stakes work. Runs the Omnicode race: Claude Fable 5.1 + GPT-5.6-Sol max + Grok 4.6 xhigh implement independently, Claude Fable 5.1 judges, and GLM-5.3 max verifies. Triggers on 'RJV', 'race-judge-verify', or 'race and judge'."
+description: "Race-Judge-Verify for genuinely hard/high-stakes work. Runs the Omnicode race: Claude Fable 5.1 + GPT-6 Astra max + Grok 4.6 xhigh implement independently, Claude Fable 5.1 judges, and GLM-5.3 max verifies. Triggers on 'RJV', 'race-judge-verify', or 'race and judge'."
 ---
 
 # RJV — Race-Judge-Verify
 
-Use RJV only when a wrong result is expensive: correctness-critical logic, migrations, security-sensitive changes, large refactors, or production hotfixes. Routine work uses one lane: Grok 4.6 high for well-specified code, GPT-5.6-Sol max for correctness.
+Use RJV only when a wrong result is expensive: correctness-critical logic, migrations, security-sensitive changes, large refactors, or production hotfixes. Routine work uses one lane: Grok 4.6 high for well-specified code, GPT-6 Astra max for correctness.
 
 ## Workflow
 
@@ -20,7 +20,7 @@ Workflow({ scriptPath: '~/.claude/workflows/race-and-judge.mjs', args: { spec: '
 
 5. Three isolated implementations race:
    - Claude Fable 5.1, 1M context, adaptive reasoning
-   - GPT-5.6-Sol, max reasoning, 272K subscription context (258.4K effective)
+   - GPT-6 Astra, max reasoning, 272K configured context (258.4K effective)
    - Grok 4.6, xhigh reasoning, 500K context
 6. Claude Fable 5.1 (1M context) judges only complete, independently verified candidates **from their served `diffText`**, not from summaries.
 7. GLM-5.3 (1M context, max reasoning) adversarially verifies the winner **and re-runs the trusted verification command**.

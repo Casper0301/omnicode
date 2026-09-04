@@ -1,13 +1,13 @@
 // omnicode (race-and-judge.mjs) — high-stakes race across four model families.
 // Invoke from a clean GIT REPO cwd:
 //   Workflow({ scriptPath: '~/.claude/workflows/race-and-judge.mjs', args: { spec: '<five-part spec>', verifyCmd: '<trusted command>' } })
-// Race: Claude Fable 5.1 + GPT-5.6-Sol max + Grok 4.6 xhigh. Judge: Fable 5.1. Verify: GLM-5.3 max.
+// Race: Claude Fable 5.1 + GPT-6 Astra max + Grok 4.6 xhigh. Judge: Fable 5.1. Verify: GLM-5.3 max.
 // State across the race is the spec + each lane's diffText. Implementations stay isolated.
 // The architect applies a winner only when verification is sound AND verifyCmdPassed, then re-runs verifyCmd.
 
 export const meta = {
   name: 'omnicode',
-  description: 'Race Fable 5.1, GPT-5.6-Sol max, and Grok 4.6 xhigh in isolated worktrees; Fable 5.1 judges; GLM-5.3 max verifies.',
+  description: 'Race Fable 5.1, GPT-6 Astra max, and Grok 4.6 xhigh in isolated worktrees; Fable 5.1 judges; GLM-5.3 max verifies.',
   phases: [
     { title: 'Race', detail: '3 implementer lanes in parallel (Claude/GPT/Grok), each in its own git worktree' },
     { title: 'Judge', detail: 'Fable 5.1 reads every eligible diffText and picks one' },
@@ -53,8 +53,8 @@ const lanes = await parallel([
     { label: 'fable-lane [Claude Fable 5.1]', phase: 'Race', model: 'claude-fable-5-1', isolation: 'worktree', schema: LANE_SCHEMA }
   ),
   () => agent(
-    `You are the codex-implementer lane in a high-stakes race. ${isolation} Follow the current agent pattern and drive Codex with the prompt as its final positional argument: \`codex exec --ignore-user-config -m gpt-5.6-sol -c model_reasoning_effort=max -c model_context_window=272000 -c approval_policy="never" -s workspace-write --skip-git-repo-check -C "$(pwd)" -o "$FINAL" "$(cat "$SPEC")"\`. Never use stdin redirection. Re-run the trusted verification command yourself. Only after verification, capture every change with \`${captureDiff(diffPaths.codex)}\`. ${fillDiffText(diffPaths.codex)} Return lane="codex" and diffPath=${diffPaths.codex}.\n\nVERIFICATION COMMAND: ${verifyCmd}\n\nSPEC:\n${spec}`,
-    { label: 'codex-lane [GPT-5.6-Sol]', phase: 'Race', agentType: 'codex-implementer', isolation: 'worktree', schema: LANE_SCHEMA }
+    `You are the codex-implementer lane in a high-stakes race. ${isolation} Follow the current agent pattern and drive Codex with the prompt as its final positional argument: \`codex exec --ignore-user-config -m gpt-6-astra -c model_reasoning_effort=max -c model_context_window=272000 -c approval_policy="never" -s workspace-write --skip-git-repo-check -C "$(pwd)" -o "$FINAL" "$(cat "$SPEC")"\`. Never use stdin redirection. Re-run the trusted verification command yourself. Only after verification, capture every change with \`${captureDiff(diffPaths.codex)}\`. ${fillDiffText(diffPaths.codex)} Return lane="codex" and diffPath=${diffPaths.codex}.\n\nVERIFICATION COMMAND: ${verifyCmd}\n\nSPEC:\n${spec}`,
+    { label: 'codex-lane [GPT-6 Astra]', phase: 'Race', agentType: 'codex-implementer', isolation: 'worktree', schema: LANE_SCHEMA }
   ),
   () => agent(
     `You are the grok-implementer lane in a high-stakes race. ${isolation} Drive Grok 4.6 at its maximum single-model reasoning depth with \`grok --prompt-file "$SPEC" -m grok-4.6 --reasoning-effort xhigh --permission-mode acceptEdits --output-format plain --cwd "$(pwd)" --no-plan --max-turns 120 --no-memory --no-subagents --disable-web-search\`. Re-run the trusted verification command yourself. Only after verification, capture every change with \`${captureDiff(diffPaths.grok)}\`. ${fillDiffText(diffPaths.grok)} Return lane="grok" and diffPath=${diffPaths.grok}.\n\nVERIFICATION COMMAND: ${verifyCmd}\n\nSPEC:\n${spec}`,

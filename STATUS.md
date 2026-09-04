@@ -1,4 +1,4 @@
-omnicode-doctor — 2026-08-16 08:45 — host Caspers-MacBook-Pro
+omnicode-doctor — 2026-09-04 23:11 — host Caspers-MacBook-Pro
 
 == core binaries ==
 [PASS] tmux on PATH
@@ -40,7 +40,7 @@ omnicode-doctor — 2026-08-16 08:45 — host Caspers-MacBook-Pro
 == uib browser (UI verification loop) ==
 [PASS] uib shim + implementation present
 [PASS] playwright installed in ~/.uib
-[PASS] uib full round-trip (open->shot->stop) works, offline-safe data: URL
+[FAIL] uib round-trip failed
 
 == shared brain + doctrine coherence ==
 [PASS] brain file exists (/Users/casperschive/.claude/projects/-Users-casperschive-Projects/memory/MEMORY.md)
@@ -62,6 +62,7 @@ omnicode-doctor — 2026-08-16 08:45 — host Caspers-MacBook-Pro
 [PASS] dcode-implementer carries fallback protocol
 [PASS] retired Gemini/Antigravity wrappers absent
 [PASS] codex-implementer stdin bug absent
+[PASS] Codex and dcode wrappers pin GPT-6 Astra with max reasoning
 [PASS] Grok wrapper pins 4.6 with high reasoning
 [PASS] Fable advisor is pinned to the latest Fable alias
 
@@ -69,7 +70,9 @@ omnicode-doctor — 2026-08-16 08:45 — host Caspers-MacBook-Pro
 [PASS] race-and-judge workflow present
 [PASS] race-and-judge Codex prompt is positional
 [PASS] race-and-judge has no Gemini/Antigravity lane
-[PASS] RJV uses Grok 4.6 xhigh and a Fable judge
+[PASS] RJV uses Fable 5.1, GPT-6 Astra max, and Grok 4.6 xhigh
+[PASS] RJV Claude implementer is not Opus
+[PASS] RJV serves diffs to the judge and requires verifier re-run
 [PASS] omnicode skill bans destructive fallback cleanup
 [PASS] shared agent skills root safely points to Claude skills
 [PASS] omnicode skill symlinked into shared + Claude roots
@@ -78,22 +81,22 @@ omnicode-doctor — 2026-08-16 08:45 — host Caspers-MacBook-Pro
 [PASS] authenticated Grok catalog defaults to 4.6
 [PASS] Grok local defaults are pinned to 4.6
 [PASS] GLM launcher maps the 1M flagship and max reasoning budget
-[PASS] authenticated Codex catalog confirms GPT-5.6-Sol / 272K / max
-[PASS] agent-harnesses MCP configured
+[PASS] authenticated Codex catalog confirms GPT-6 Astra / 272K default / max
+[WARN] agent-harnesses MCP not in ~/.claude.json
 
 == goal ledger (durable cross-harness goals) ==
 [PASS] goal CLI executable
 [PASS] goal round-trip (new->loop->DONE on green acceptance) works
 [PASS] all goal files parse
-       open goals: 2
+       open goals: 3
 
 == repo self-tests ==
 [PASS] omnicode unit tests pass
 
 == state hygiene ==
 [PASS] health.json valid
-[PASS] ~/.lanes size OK (46MB)
+[PASS] ~/.lanes size OK (154MB)
 [PASS] no stale lane sessions
 
 == summary ==
-PASS=72 WARN=0 FAIL=0
+PASS=73 WARN=1 FAIL=1

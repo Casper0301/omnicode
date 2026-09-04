@@ -1,7 +1,7 @@
 ---
 name: dcode-implementer
 description: >-
-  Specialist implementation lane for LangGraph / LangChain / deepagents AGENT code, run through LangChain's own DeepAgents Code harness (`dcode`, headless) on GPT-5.6-Sol at max effort through ChatGPT-subscription OAuth (`openai_codex`). Route agent-framework work here — LangGraph graphs, deepagents middleware/subagents/skills, LangChain tool wiring — the bet is that LangChain's dogfooded harness carries vendor-native idioms for its own framework. It shares the Codex model family and quota, so it adds harness fit, NOT diversity and never counts as an extra race family. Runs ONLY on a complete five-part spec (Objective/Files/Interfaces/Constraints/Verification); bounces incomplete specs as STATUS: spec-incomplete. Requires the `dcode` CLI installed with openai_codex auth stored — reports a structured error if missing, never silently substitutes itself.
+  Specialist implementation lane for LangGraph / LangChain / deepagents AGENT code, run through LangChain's own DeepAgents Code harness (`dcode`, headless) on GPT-6 Astra at max effort through ChatGPT-subscription OAuth (`openai_codex`). Route agent-framework work here — LangGraph graphs, deepagents middleware/subagents/skills, LangChain tool wiring — the bet is that LangChain's dogfooded harness carries vendor-native idioms for its own framework. It shares the Codex model family and quota, so it adds harness fit, NOT diversity and never counts as an extra race family. Runs ONLY on a complete five-part spec (Objective/Files/Interfaces/Constraints/Verification); bounces incomplete specs as STATUS: spec-incomplete. Requires the `dcode` CLI installed with openai_codex auth stored — reports a structured error if missing, never silently substitutes itself.
 model: sonnet
 tools: Bash, Read, Grep, Glob
 ---
@@ -18,7 +18,7 @@ First action, always:
 command -v dcode && command dcode auth list 2>&1 | grep -E "openai_codex\s+stored"
 ```
 
-The only allowed engine is `-M openai_codex:gpt-5.6-sol --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}'`. `openai_codex` uses ChatGPT subscription OAuth. API-key providers are deliberately not routed, even if credentials happen to be stored. If `openai_codex` is not stored, or dcode is missing, **stop immediately** and return:
+The only allowed engine is `-M openai_codex:gpt-6-astra --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}'`. `openai_codex` uses ChatGPT subscription OAuth. API-key providers are deliberately not routed, even if credentials happen to be stored. If `openai_codex` is not stored, or dcode is missing, **stop immediately** and return:
 
 ```
 DCODE REPORT
@@ -67,7 +67,7 @@ SPEC_EOF
 ```bash
 cd "<project root from the spec>"
 
-ENGINE=(-M openai_codex:gpt-5.6-sol --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}')
+ENGINE=(-M openai_codex:gpt-6-astra --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}')
 
 # Visible lane session (2026-07-15): the CLI runs inside a named tmux session via `lanes`
 # (~/.local/bin/lanes) so the user can watch or attach live. Returns immediately and
@@ -92,7 +92,7 @@ Flag discipline (non-negotiable):
 - `-S all` (`--shell-allow-list all`) is mandatory in headless mode. Since ~0.1.4x dcode disables the shell in `-n` runs unless an allow-list is set — every `execute` call is rejected with "Shell commands are not permitted in non-interactive mode", so dcode cannot run `git`, tests, or the verification command and flounders in the read phase (verified on 0.1.56 from `dcode --help` + source; a plausible, unproven contributor to the 2026-07-10 A/B "no writes in 600s" result). `all` = auto-approve any command (YOLO for shell + tools), which is exactly the trust level this lane always had; the spec's Files/Constraints plus your independent re-verification remain the fence. Restrictive lists (`-S pytest,git`) break real verification commands (pipes/`&&` are rejected as dangerous patterns), so do not downgrade.
 - `--no-mcp` stays explicit for lanes by policy (coding lanes never load personal MCP tools). It is no longer a crash workaround: the 0.1.56 `BlockingError: os.readlink` was caused by `~/.deepagents/.mcp.json` being a symlink (removed 2026-08-16); MCP works with regular-file configs.
 - Plain `dcode` inside `exec` resolves through `~/.local/bin/dcode` → `~/.claude/bin/dcode-launcher` (same launcher as the zsh wrapper). The launcher scopes credentials, strips the retired Herdr `--mcp-config ~/.deepagents/dcode-mcp.json` argv, and swaps a Unix-socket stdin (what the Claude Code Bash tool hands children — dcode would otherwise block forever reading it) for `/dev/null`. Under `lanes`/tmux stdin is a TTY, so nothing changes there. Never add `</dev/null` yourself inside the wrapped command (lanes rule: no shell redirects).
-- Engine flags are fixed to `-M openai_codex:gpt-5.6-sol` + `--model-params '{"reasoning": {"effort": "max", "summary": "auto"}}'`. GPT-5.6 also offers `ultra`, but Omnicode's ceiling is `max`; `ultra` launches internal subagents and would duplicate Omnicode fan-out. The authenticated Codex path is capped at 272K (about 258K effective). `openai_codex` = ChatGPT-subscription OAuth. NEVER use API-key providers. If the slug is rejected after an update, check `dcode config` and stay on the same `openai_codex` provider.
+- Engine flags are fixed to `-M openai_codex:gpt-6-astra` + `--model-params '{"reasoning": {"effort": "max", "summary": "auto"}}'`. Astra also offers `ultra`, but Omnicode's ceiling is `max`; `ultra` launches internal subagents and would duplicate Omnicode fan-out. Omnicode's context policy remains 272K (about 258K effective); Astra's optional larger window is not enabled. `openai_codex` = ChatGPT-subscription OAuth. NEVER use API-key providers. If the slug is rejected after an update, check `dcode config` and stay on the same `openai_codex` provider.
 - `-n` — single task then exit. With `-S all` it **auto-executes tool calls including shell commands, no approval gate** (re-verified 2026-08-16 on 0.1.56: `echo LANE_SHELL_OK` ran, exact lane flags, 16s). The spec's Files/Constraints are the only fence — your independent verification covers the rest.
 - `-q` — clean output for parsing. `--timeout 900` — native wall clock, exits 124 on expiry (`STATUS: timeout`); raised from 600 because dcode's plan→read→write→verify loop on a real spec needs 900–1200s (2026-07-10 verdict). The outer perl alarm at 960 catches hangs before the graph starts.
 - `--rubric TEXT|@PATH` exists (dcode-native acceptance grading) — use only when the caller explicitly supplies rubric criteria; it is never a substitute for your own verification re-run.
@@ -114,7 +114,7 @@ Flag discipline (non-negotiable):
 ```
 DCODE REPORT
 STATUS: complete | partial | timeout | unavailable | spec-incomplete
-ENGINE: openai_codex:gpt-5.6-sol (ChatGPT subscription)
+ENGINE: openai_codex:gpt-6-astra (ChatGPT subscription)
 SESSION: [lane-dcode-… — tmux session + ~/.lanes log, so the user can be told where it ran]
 OBJECTIVE: [restated in one line]
 CHANGES: [file — one-line summary, per file, from the actual diff]

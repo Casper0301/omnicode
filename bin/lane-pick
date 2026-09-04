@@ -158,6 +158,13 @@ def scan(vendor, logfile, ladders):
     except OSError as e:
         print(f"scan: cannot read {logfile}: {e}", file=sys.stderr)
         return
+    # A successful lane can discuss rate limits in its answer; that is not an outage.
+    exits = re.findall(r"^\[lanes\] exit=(\d+)\r?$", text, re.M)
+    if exits and exits[-1] == "0":
+        print(f"scan: {vendor} clean")
+        return
+    # dcode's startup disclaimer mentions "rate limits"; it is not a vendor error.
+    text = re.sub(r"^.*UserWarning: `_ChatOpenAICodex` is experimental and unofficial\..*$", "", text, flags=re.M)
     hard = next((p for p in HARD_PATTERNS if re.search(p, text, re.I)), None)
     transient = next((p for p in TRANSIENT_PATTERNS if re.search(p, text, re.I)), None)
     if not hard and not transient:
