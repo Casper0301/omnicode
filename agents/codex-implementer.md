@@ -51,17 +51,22 @@ FINAL=$(mktemp -t codex-final.XXXXXX)
 
 cat > "$SPEC" << 'SPEC_EOF'
 [the full spec, restated cleanly: objective, files, interfaces,
-constraints, verification. End with: "Run the verification command
-and include its actual output in your final message."]
+constraints, verification. End with: "Continue until the verification
+command passes: fix failures caused by your change, rerun the affected
+checks without asking, and do not stop for review after a first
+implementation. Include the verification command's actual output in
+your final message."]
 SPEC_EOF
 ```
+
+GPT-6 Astra tends to stop for review after a first pass (OpenAI guidance, 2026-09); the completion sentence above is what keeps it going to the verified end.
 
 2. Invoke codex non-interactively, sandboxed to the workspace, with reasoning effort pinned high:
 
 ```bash
 # Portable timeout via perl alarm (no coreutils needed — always caps on macOS/Linux)
 
-perl -e 'alarm shift; exec @ARGV' 600 codex exec \
+perl -e 'alarm shift; exec @ARGV' 900 codex exec \
   --ignore-user-config \
   -m gpt-6-astra \
   -c model_reasoning_effort=max \
@@ -115,7 +120,7 @@ Do not run the CLI as a bare or background shell command. Wrap your documented i
    `lanes start codex -- <your full documented CLI invocation>`
    ⚠️ Strip ALL shell redirects (`- < "$SPEC"`, `> file`, `2>&1`) from the wrapped command — redirects apply to `lanes start` itself, not the CLI inside tmux: stdin redirects hang the CLI forever, stdout captures swallow the `SESSION=` line. Pass the prompt positionally and read output from `LOG`.
    Returns immediately and prints `SESSION=lane-codex-…` and `LOG=…` — note both.
-2. Wait bounded: `lanes wait <SESSION> 540` — exit 0 = Codex succeeded, exit 142 = still running, any other code = Codex failed. Call wait again only on 142; never sleep-poll.
+2. Wait bounded: `lanes wait <SESSION> 540` — exit 0 = Codex succeeded, exit 142 = still running, any other code = Codex failed. Call wait again only on 142; never sleep-poll. The 900s alarm spans at most two 540s slices.
 3. Read the lane's final output from `LOG`, verify per the spec, and include a `SESSION:` line in your report so the caller can tell the user where to watch (`tmux attach -t <SESSION>`, detach Ctrl-b d).
 
 Never `lanes kill` a session the user may be attached to without being asked.

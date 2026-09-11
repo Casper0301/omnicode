@@ -57,8 +57,11 @@ SPEC=$(mktemp -t dcode-spec.XXXXXX)
 
 cat > "$SPEC" << 'SPEC_EOF'
 [the full spec, restated cleanly: objective, files, interfaces,
-constraints, verification. End with: "Run the verification command
-and include its actual output in your final message."]
+constraints, verification. End with: "Continue until the verification
+command passes: fix failures caused by your change, rerun the affected
+checks without asking, and do not stop for review after a first
+implementation. Include the verification command's actual output in
+your final message."]
 SPEC_EOF
 ```
 

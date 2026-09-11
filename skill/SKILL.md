@@ -1,6 +1,6 @@
 ---
 name: omnicode
-description: Use when orchestrating work across the omnicode lane system or its tools — routing implementation and review to codex/grok/glm/dcode, handling quota fallback, creating durable goals, racing high-stakes implementations, or using uib for terminal-driven UI review. Triggers on "omnicode", "lane", "lanes", "lane-pick", "goal ledger", "race and judge", "RJV", or model/CLI routing decisions.
+description: "Route work across omnicode lanes (codex/grok/glm/dcode): implementation, review, quota fallback, durable goals, race-and-judge, uib UI review. Use when: omnicode, lane(s), lane-pick, goal ledger, RJV, model/CLI routing."
 ---
 
 # omnicode — reliable multi-model orchestration
