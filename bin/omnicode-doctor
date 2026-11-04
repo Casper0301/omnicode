@@ -216,13 +216,15 @@ if [ -d "$H/.claude/skills" ] && [ ! -L "$H/.claude/skills" ]; then
   pass "canonical Claude skills root is a real directory"
 else fail "~/.claude/skills must remain a real directory"; fi
 for generic_root in "$H/.agents/skills" "$H/.cursor/skills"; do
-  if [ -d "$generic_root" ] && [ ! -L "$generic_root" ] \
-     && [ -z "$(find "$generic_root" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
-    pass "generic skills root is a real empty directory: $generic_root"
-  else fail "generic skills root must remain a real empty directory: $generic_root"; fi
+  # Empty except ChatCut Desktop's own chatcut-* entries (Casper's rule: never delete those).
+  extra=$(find "$generic_root" -mindepth 1 -maxdepth 1 ! -name 'chatcut-*' \
+            ! -name '.chatcut-desktop-skills.json' -print -quit 2>/dev/null)
+  if [ -d "$generic_root" ] && [ ! -L "$generic_root" ] && [ -z "$extra" ]; then
+    pass "generic skills root holds only ChatCut's own entries: $generic_root"
+  else fail "generic skills root must stay empty except ChatCut's own entries: $generic_root"; fi
 done
 if [ -L "$H/.claude/skills/omnicode" ] \
-   && [ "$(readlink "$H/.claude/skills/omnicode" 2>/dev/null)" = "$H/Projects/omnicode/skill" ] \
+   && [ "$(cd -P "$H/.claude/skills/omnicode" 2>/dev/null && pwd)" = "$(cd -P "$H/Projects/omnicode/skill" 2>/dev/null && pwd)" ] \
    && [ -f "$H/.claude/skills/omnicode/SKILL.md" ]; then
   pass "omnicode skill linked into the canonical Claude root"
 else fail "omnicode skill symlink missing/wrong — run scripts/apply.sh"; fi
@@ -236,12 +238,14 @@ if [ -f "$H/.claude/skills/rjv/SKILL.md" ]; then
     pass "rjv skill matches the current model policy"
   else fail "rjv skill is missing current Fable/Astra/Grok routing"; fi
 else warn "rjv skill missing"; fi
-if grok models 2>/dev/null | grep -q 'Default model: grok-4.6'; then
-  pass "authenticated Grok catalog defaults to 4.6"
-else fail "authenticated Grok catalog does not default to 4.6"; fi
-if grep -q 'default = "grok-4.6"' "$H/.grok/config.toml" 2>/dev/null \
-   && grep -q 'fork_secondary_model = "grok-4.6"' "$H/.grok/config.toml" 2>/dev/null; then
-  pass "Grok local defaults are pinned to 4.6"
+# The grok lane pins grok-4.6; it only needs that model to stay in the catalog (default may be newer).
+if grok models 2>/dev/null | grep -qE 'grok-4\.6( |$)'; then
+  pass "authenticated Grok catalog still offers grok-4.6 (the grok lane's pinned model)"
+else fail "authenticated Grok catalog no longer offers grok-4.6"; fi
+grok_minor() { sed -nE "s/^$1 = \"grok-4\\.([0-9]+).*\"/\\1/p" "$H/.grok/config.toml" 2>/dev/null | head -1; }
+gd=$(grok_minor default); gf=$(grok_minor fork_secondary_model)
+if [ -n "$gd" ] && [ "$gd" -ge 6 ] && { [ -z "$gf" ] || [ "$gf" -ge 6 ]; }; then
+  pass "Grok local defaults are pinned to grok-4.6 or newer"
 else fail "~/.grok/config.toml still pins an older Grok model"; fi
 if grep -q 'ANTHROPIC_DEFAULT_OPUS_MODEL="glm-5.3\[1m\]"' "$H/.local/bin/glm" 2>/dev/null \
    && grep -q 'MAX_THINKING_TOKENS="64000"' "$H/.local/bin/glm" 2>/dev/null; then
