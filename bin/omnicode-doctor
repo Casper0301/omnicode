@@ -72,13 +72,13 @@ assert 'codex' in g and 'dcode' in g" 2>/dev/null; then
 else fail "quota_groups.openai must contain codex and dcode"; fi
 if python3 -c "
 import json; m=json.load(open('$H/.claude/omnicode/models.json'))
-assert m['claude']['architecture_advisor']['resolved']=='claude-fable-5-1'
-assert m['claude']['rjv_implementer']['resolved']=='claude-fable-5-1'
-assert m['claude']['rjv_judge']['resolved']=='claude-fable-5-1'
-assert m['codex']['model']=='gpt-6-astra' and m['codex']['context_window']==272000 and m['codex']['reasoning_effort']=='max' and m['codex']['forbidden_effort']=='ultra'
-assert m['grok']['model']=='grok-4.6' and m['grok']['context_window']==500000 and m['grok']['routine_reasoning_effort']=='high' and m['grok']['rjv_reasoning_effort']=='xhigh'
+assert m['claude']['architecture_advisor']['resolved']=='claude-fable-5-2'
+assert m['claude']['rjv_implementer']['resolved']=='claude-fable-5-2'
+assert m['claude']['rjv_judge']['resolved']=='claude-fable-5-2'
+assert m['codex']['model']=='gpt-6.2-astra' and m['codex']['context_window']==272000 and m['codex']['reasoning_effort']=='max' and m['codex']['forbidden_effort']=='ultra'
+assert m['grok']['model']=='grok-4.7' and m['grok']['context_window']==500000 and m['grok']['routine_reasoning_effort']=='high' and m['grok']['rjv_reasoning_effort']=='xhigh'
 assert m['glm']['resolved']=='glm-5.3[1m]' and m['glm']['context_window']==1000000 and m['glm']['reasoning_effort']=='max'
-assert m['dcode']['model']=='openai_codex:gpt-6-astra' and m['dcode']['reasoning_effort']=='max'" 2>/dev/null; then
+assert m['dcode']['model']=='openai_codex:gpt-6.2-astra' and m['dcode']['reasoning_effort']=='max'" 2>/dev/null; then
   pass "models.json matches the latest model/context/effort policy"
 else fail "models.json missing, invalid, or stale"; fi
 for c in code correctness langchain longcontext research review ui architecture; do
@@ -167,16 +167,16 @@ else pass "retired Gemini/Antigravity wrappers absent"; fi
 if grep -qE -- '^[[:space:]]*- < "\$SPEC"[[:space:]]*\\?$' "$H/.claude/agents/codex-implementer.md" 2>/dev/null; then
   fail "codex-implementer still documents the stdin-redirect invocation (hangs under lanes)"
 else pass "codex-implementer stdin bug absent"; fi
-if grep -q -- '-m gpt-6-astra' "$H/.claude/agents/codex-implementer.md" 2>/dev/null \
+if grep -q -- '-m gpt-6.2-astra' "$H/.claude/agents/codex-implementer.md" 2>/dev/null \
    && grep -q -- '-c model_reasoning_effort=max' "$H/.claude/agents/codex-implementer.md" 2>/dev/null \
-   && grep -q -- '-M openai_codex:gpt-6-astra' "$H/.claude/agents/dcode-implementer.md" 2>/dev/null \
+   && grep -q -- '-M openai_codex:gpt-6.2-astra' "$H/.claude/agents/dcode-implementer.md" 2>/dev/null \
    && grep -q '"effort": "max"' "$H/.claude/agents/dcode-implementer.md" 2>/dev/null; then
-  pass "Codex and dcode wrappers pin GPT-6 Astra with max reasoning"
+  pass "Codex and dcode wrappers pin GPT-6.2 Astra with max reasoning"
 else fail "Codex/dcode wrapper model/effort policy is stale"; fi
-if grep -q 'grok-4.6' "$H/.claude/agents/grok-implementer.md" 2>/dev/null \
+if grep -q 'grok-4.7' "$H/.claude/agents/grok-implementer.md" 2>/dev/null \
    && grep -q -- '--reasoning-effort high' "$H/.claude/agents/grok-implementer.md" 2>/dev/null \
    && ! grep -qE -- '-m[[:space:]]+grok-4\.5' "$H/.claude/agents/grok-implementer.md" 2>/dev/null; then
-  pass "Grok wrapper pins 4.6 with high reasoning"
+  pass "Grok wrapper pins 4.7 with high reasoning"
 else fail "Grok wrapper model/effort pin is stale"; fi
 if grep -q '^model: fable$' "$H/.claude/agents/fable-advisor.md" 2>/dev/null; then
   pass "Fable advisor is pinned to the latest Fable alias"
@@ -191,12 +191,12 @@ else pass "race-and-judge Codex prompt is positional"; fi
 if grep -qiE 'antigravity|gemini|\bagy\b' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
   fail "race-and-judge still routes a retired Gemini/Antigravity lane"
 else pass "race-and-judge has no Gemini/Antigravity lane"; fi
-if grep -q 'grok-4.6' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
+if grep -q 'grok-4.7' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
    && grep -q -- '--reasoning-effort xhigh' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
    && grep -q "model: 'fable'" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
-   && grep -q "claude-fable-5-1" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
-   && grep -q -- '-m gpt-6-astra -c model_reasoning_effort=max' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
-  pass "RJV uses Fable 5.1, GPT-6 Astra max, and Grok 4.6 xhigh"
+   && grep -q "claude-fable-5-2" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null \
+   && grep -q -- '-m gpt-6.2-astra -c model_reasoning_effort=max' "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
+  pass "RJV uses Fable 5.2, GPT-6.2 Astra max, and Grok 4.7 xhigh"
 else fail "RJV model/effort policy is stale"; fi
 if grep -q "model: 'opus'" "$H/.claude/workflows/race-and-judge.mjs" 2>/dev/null; then
   fail "RJV still uses Opus as the Claude implementer"
@@ -232,20 +232,20 @@ if [ -f "$H/.claude/skills/rjv/SKILL.md" ]; then
   pass "rjv skill present"
   if grep -qiE '\bagy\b|grok 4\.5|gemini 3\.1|antigravity-implementer' "$H/.claude/skills/rjv/SKILL.md"; then
     fail "rjv skill advertises a retired/stale model"
-  elif grep -q 'Grok 4.6' "$H/.claude/skills/rjv/SKILL.md" \
-       && grep -q 'Fable 5.1' "$H/.claude/skills/rjv/SKILL.md" \
-       && grep -q 'GPT-6 Astra' "$H/.claude/skills/rjv/SKILL.md"; then
+  elif grep -q 'Grok 4.7' "$H/.claude/skills/rjv/SKILL.md" \
+       && grep -q 'Fable 5.2' "$H/.claude/skills/rjv/SKILL.md" \
+       && grep -q 'GPT-6.2 Astra' "$H/.claude/skills/rjv/SKILL.md"; then
     pass "rjv skill matches the current model policy"
   else fail "rjv skill is missing current Fable/Astra/Grok routing"; fi
 else warn "rjv skill missing"; fi
-# The grok lane pins grok-4.6; it only needs that model to stay in the catalog (default may be newer).
-if grok models 2>/dev/null | grep -qE 'grok-4\.6( |$)'; then
-  pass "authenticated Grok catalog still offers grok-4.6 (the grok lane's pinned model)"
-else fail "authenticated Grok catalog no longer offers grok-4.6"; fi
+# The grok lane pins grok-4.7; it only needs that model to stay in the catalog (default may be newer).
+if grok models 2>/dev/null | grep -qE 'grok-4\.7( |$)'; then
+  pass "authenticated Grok catalog still offers grok-4.7 (the grok lane's pinned model)"
+else fail "authenticated Grok catalog no longer offers grok-4.7"; fi
 grok_minor() { sed -nE "s/^$1 = \"grok-4\\.([0-9]+).*\"/\\1/p" "$H/.grok/config.toml" 2>/dev/null | head -1; }
 gd=$(grok_minor default); gf=$(grok_minor fork_secondary_model)
-if [ -n "$gd" ] && [ "$gd" -ge 6 ] && { [ -z "$gf" ] || [ "$gf" -ge 6 ]; }; then
-  pass "Grok local defaults are pinned to grok-4.6 or newer"
+if [ -n "$gd" ] && [ "$gd" -ge 7 ] && { [ -z "$gf" ] || [ "$gf" -ge 7 ]; }; then
+  pass "Grok local defaults are pinned to grok-4.7 or newer"
 else fail "~/.grok/config.toml still pins an older Grok model"; fi
 if grep -q 'ANTHROPIC_DEFAULT_OPUS_MODEL="glm-5.3\[1m\]"' "$H/.local/bin/glm" 2>/dev/null \
    && grep -q 'MAX_THINKING_TOKENS="64000"' "$H/.local/bin/glm" 2>/dev/null; then
@@ -254,10 +254,10 @@ else fail "GLM launcher model/context/reasoning mapping is stale"; fi
 if python3 -c "
 import json,os
 p=os.path.expanduser('~/.codex/models_cache.json')
-m=next(x for x in json.load(open(p))['models'] if x['slug']=='gpt-6-astra')
+m=next(x for x in json.load(open(p))['models'] if x['slug']=='gpt-6.2-astra')
 assert m['context_window']==272000
 assert any(x['effort']=='max' for x in m['supported_reasoning_levels'])" 2>/dev/null; then
-  pass "authenticated Codex catalog confirms GPT-6 Astra / 272K default / max"
+  pass "authenticated Codex catalog confirms GPT-6.2 Astra / 272K default / max"
 else warn "Codex model cache does not confirm the pinned subscription model"; fi
 if python3 -c "
 import json;d=json.load(open('$H/.claude.json'))
@@ -317,9 +317,9 @@ if [ "$LIVE" = 1 ]; then
   sect "LIVE end-to-end probe (burns a little quota)"
   L=$(lane-pick code 2>/dev/null || true)
   case "$L" in
-    grok)  CMD=(grok -p "Reply with exactly: OMNICODE-LIVE-OK" -m grok-4.6 --reasoning-effort low --output-format plain);;
+    grok)  CMD=(grok -p "Reply with exactly: OMNICODE-LIVE-OK" -m grok-4.7 --reasoning-effort low --output-format plain);;
     glm)   CMD=(glm --model sonnet -p "Reply with exactly: OMNICODE-LIVE-OK");;
-    codex) CMD=(codex exec --ignore-user-config -m gpt-6-astra -c model_reasoning_effort=low -s read-only --skip-git-repo-check "Reply with exactly: OMNICODE-LIVE-OK");;
+    codex) CMD=(codex exec --ignore-user-config -m gpt-6.2-astra -c model_reasoning_effort=low -s read-only --skip-git-repo-check "Reply with exactly: OMNICODE-LIVE-OK");;
     *)     CMD=();;
   esac
   if [ ${#CMD[@]} -gt 0 ]; then

@@ -183,10 +183,10 @@ test('binds each lane to its trusted artifact and reviews every byte before read
     assert.deepEqual(
       fixture.calls.map((call) => call.opts.label),
       [
-        'fable-lane [Claude Fable 5.1]',
-        'codex-lane [GPT-6 Astra]',
+        'fable-lane [Claude Fable 5.2]',
+        'codex-lane [GPT-6.2 Astra]',
         'grok-lane [Grok]',
-        'judge [Fable 5.1]',
+        'judge [Fable 5.2]',
         'glm-verify [GLM-5.3]',
       ],
     )

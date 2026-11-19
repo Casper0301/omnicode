@@ -1,4 +1,4 @@
-omnicode-doctor — 2026-09-04 23:11 — host Caspers-MacBook-Pro
+omnicode-doctor — 2026-11-19 11:45 — host caspers-macbook-pro-1
 
 == core binaries ==
 [PASS] tmux on PATH
@@ -40,7 +40,7 @@ omnicode-doctor — 2026-09-04 23:11 — host Caspers-MacBook-Pro
 == uib browser (UI verification loop) ==
 [PASS] uib shim + implementation present
 [PASS] playwright installed in ~/.uib
-[FAIL] uib round-trip failed
+[PASS] uib full round-trip (open->shot->stop) works, offline-safe data: URL
 
 == shared brain + doctrine coherence ==
 [PASS] brain file exists (/Users/casperschive/.claude/projects/-Users-casperschive-Projects/memory/MEMORY.md)
@@ -62,26 +62,28 @@ omnicode-doctor — 2026-09-04 23:11 — host Caspers-MacBook-Pro
 [PASS] dcode-implementer carries fallback protocol
 [PASS] retired Gemini/Antigravity wrappers absent
 [PASS] codex-implementer stdin bug absent
-[PASS] Codex and dcode wrappers pin GPT-6 Astra with max reasoning
-[PASS] Grok wrapper pins 4.6 with high reasoning
+[PASS] Codex and dcode wrappers pin GPT-6.2 Astra with max reasoning
+[PASS] Grok wrapper pins 4.7 with high reasoning
 [PASS] Fable advisor is pinned to the latest Fable alias
 
 == skills, MCP, workflows ==
 [PASS] race-and-judge workflow present
 [PASS] race-and-judge Codex prompt is positional
 [PASS] race-and-judge has no Gemini/Antigravity lane
-[PASS] RJV uses Fable 5.1, GPT-6 Astra max, and Grok 4.6 xhigh
+[PASS] RJV uses Fable 5.2, GPT-6.2 Astra max, and Grok 4.7 xhigh
 [PASS] RJV Claude implementer is not Opus
-[PASS] RJV serves diffs to the judge and requires verifier re-run
+[PASS] RJV serves complete digest-bound artifacts and requires verifier re-run
 [PASS] omnicode skill bans destructive fallback cleanup
-[PASS] shared agent skills root safely points to Claude skills
-[PASS] omnicode skill symlinked into shared + Claude roots
+[PASS] canonical Claude skills root is a real directory
+[PASS] generic skills root holds only ChatCut's own entries: /Users/casperschive/.agents/skills
+[PASS] generic skills root holds only ChatCut's own entries: /Users/casperschive/.cursor/skills
+[PASS] omnicode skill linked into the canonical Claude root
 [PASS] rjv skill present
 [PASS] rjv skill matches the current model policy
-[PASS] authenticated Grok catalog defaults to 4.6
-[PASS] Grok local defaults are pinned to 4.6
+[PASS] authenticated Grok catalog still offers grok-4.7 (the grok lane's pinned model)
+[PASS] Grok local defaults are pinned to grok-4.7 or newer
 [PASS] GLM launcher maps the 1M flagship and max reasoning budget
-[PASS] authenticated Codex catalog confirms GPT-6 Astra / 272K default / max
+[PASS] authenticated Codex catalog confirms GPT-6.2 Astra / 272K default / max
 [WARN] agent-harnesses MCP not in ~/.claude.json
 
 == goal ledger (durable cross-harness goals) ==
@@ -95,8 +97,8 @@ omnicode-doctor — 2026-09-04 23:11 — host Caspers-MacBook-Pro
 
 == state hygiene ==
 [PASS] health.json valid
-[PASS] ~/.lanes size OK (154MB)
+[PASS] ~/.lanes size OK (169MB)
 [PASS] no stale lane sessions
 
 == summary ==
-PASS=73 WARN=1 FAIL=1
+PASS=76 WARN=1 FAIL=0

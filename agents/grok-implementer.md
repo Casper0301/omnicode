@@ -1,7 +1,7 @@
 ---
 name: grok-implementer
 description: >-
-  Default implementation lane for PURE CODING tasks, running Grok 4.6 via xAI's Grok CLI (500K context, high reasoning, grok.com subscription auth). Runs ONLY on a complete five-part spec (Objective/Files/Interfaces/Constraints/Verification) — grok freestyles where the spec is silent, so this lane bounces incomplete specs back as STATUS: spec-incomplete instead of letting grok improvise. Correctness-critical work goes to codex instead. Receives the five-part spec; drives grok to write the code; returns a structured report with verification evidence. Requires `grok-4.6` in the authenticated CLI catalog — reports a structured error if unavailable, never silently substitutes another model.
+  Default implementation lane for PURE CODING tasks, running Grok 4.7 via xAI's Grok CLI (500K context, high reasoning, grok.com subscription auth). Runs ONLY on a complete five-part spec (Objective/Files/Interfaces/Constraints/Verification) — grok freestyles where the spec is silent, so this lane bounces incomplete specs back as STATUS: spec-incomplete instead of letting grok improvise. Correctness-critical work goes to codex instead. Receives the five-part spec; drives grok to write the code; returns a structured report with verification evidence. Requires `grok-4.7` in the authenticated CLI catalog — reports a structured error if unavailable, never silently substitutes another model.
 model: sonnet
 tools: Bash, Read, Grep, Glob
 ---
@@ -68,7 +68,7 @@ SPEC_EOF
 # Portable timeout via perl alarm (no coreutils needed — always caps on macOS/Linux)
 
 perl -e 'alarm shift; exec @ARGV' 600 grok --prompt-file "$SPEC" \
-  -m grok-4.6 \
+  -m grok-4.7 \
   --reasoning-effort high \
   --permission-mode acceptEdits \
   --output-format plain \
@@ -79,9 +79,9 @@ perl -e 'alarm shift; exec @ARGV' 600 grok --prompt-file "$SPEC" \
 FINAL=/tmp/grok-final-$$.txt
 ```
 
-Flag discipline (non-negotiable): `-m grok-4.6` pins the latest authenticated frontier model (500K context). `--reasoning-effort high` is the quality/latency optimum for the routine code lane; RJV alone raises Grok to `xhigh`. `--no-plan` prevents a headless run from stopping after planning, while `--max-turns 120` leaves the wall-clock alarm as the real runaway guard. `--no-memory --no-subagents --disable-web-search` keeps this bounded coding lane self-contained. `--permission-mode acceptEdits` is smoke-verified on Grok CLI 1.0.4 and preserves command approval boundaries; never use `bypassPermissions`. The host re-runs verification independently.
+Flag discipline (non-negotiable): `-m grok-4.7` pins the latest authenticated frontier model (500K context). `--reasoning-effort high` is the quality/latency optimum for the routine code lane; RJV alone raises Grok to `xhigh`. `--no-plan` prevents a headless run from stopping after planning, while `--max-turns 120` leaves the wall-clock alarm as the real runaway guard. `--no-memory --no-subagents --disable-web-search` keeps this bounded coding lane self-contained. `--permission-mode acceptEdits` is smoke-verified on Grok CLI 1.0.4 and preserves command approval boundaries; never use `bypassPermissions`. The host re-runs verification independently.
 
-If `grok-4.6` is absent or rejected, return `STATUS: unavailable` and let `lane-pick` choose another family. Never omit `-m` or silently fall back to an older Grok model.
+If `grok-4.7` is absent or rejected, return `STATUS: unavailable` and let `lane-pick` choose another family. Never omit `-m` or silently fall back to an older Grok model.
 
 3. **Verify independently.** Read the diff (`git diff` / `git status`), run the spec's verification command yourself, and read grok's final message from `"$FINAL"`. Grok's claim of success is not evidence; your re-run is. (`acceptEdits` may have blocked grok from running the verification itself — your re-run covers that by design.)
 

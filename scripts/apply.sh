@@ -24,9 +24,11 @@ ensure_empty_generic_root() {
       echo "refusing unsafe generic skills root (must be a real empty directory): $root" >&2
       exit 1
     fi
-    first_entry="$(find "$root" -mindepth 1 -maxdepth 1 -print -quit)"
+    # Empty except ChatCut Desktop's own chatcut-* entries, the same rule as omnicode-doctor.
+    first_entry="$(find "$root" -mindepth 1 -maxdepth 1 ! -name 'chatcut-*' \
+      ! -name '.chatcut-desktop-skills.json' -print -quit)"
     if [[ -n "$first_entry" ]]; then
-      echo "refusing generic skills root must be empty: $root (found $first_entry)" >&2
+      echo "refusing generic skills root must be empty except ChatCut's own entries: $root (found $first_entry)" >&2
       exit 1
     fi
   else

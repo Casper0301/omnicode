@@ -152,17 +152,17 @@ class ModelPolicyTest(unittest.TestCase):
     def test_latest_models_contexts_and_efforts_are_pinned(self):
         models = json.loads((ROOT / "config" / "models.json").read_text(encoding="utf-8"))
         for role in ("architecture_advisor", "rjv_implementer", "rjv_judge"):
-            self.assertEqual(models["claude"][role]["resolved"], "claude-fable-5-1")
+            self.assertEqual(models["claude"][role]["resolved"], "claude-fable-5-2")
             self.assertEqual(models["claude"][role]["context_window"], 1_000_000)
-        self.assertEqual(models["codex"]["model"], "gpt-6-astra")
+        self.assertEqual(models["codex"]["model"], "gpt-6.2-astra")
         self.assertEqual(models["codex"]["context_window"], 272_000)
         self.assertEqual(models["codex"]["effective_context_window"], 258_400)
         self.assertEqual(models["codex"]["reasoning_effort"], "max")
         self.assertEqual(models["codex"]["forbidden_effort"], "ultra")
-        self.assertEqual(models["dcode"]["model"], "openai_codex:gpt-6-astra")
+        self.assertEqual(models["dcode"]["model"], "openai_codex:gpt-6.2-astra")
         self.assertEqual(models["dcode"]["reasoning_effort"], "max")
         self.assertEqual(models["dcode"]["quota_group"], "openai")
-        self.assertEqual(models["grok"]["model"], "grok-4.6")
+        self.assertEqual(models["grok"]["model"], "grok-4.7")
         self.assertEqual(models["grok"]["context_window"], 500_000)
         self.assertEqual(models["grok"]["routine_reasoning_effort"], "high")
         self.assertEqual(models["grok"]["rjv_reasoning_effort"], "xhigh")
@@ -177,25 +177,25 @@ class ModelPolicyTest(unittest.TestCase):
         rjv_skill = (ROOT / "skills" / "rjv" / "SKILL.md").read_text(encoding="utf-8")
         for content in (grok_agent, workflow, skill, rjv_skill):
             self.assertNotIn("grok-4.5", content)
-        self.assertIn("-m grok-4.6", grok_agent)
+        self.assertIn("-m grok-4.7", grok_agent)
         self.assertIn("--reasoning-effort high", grok_agent)
         self.assertIn("model: fable", fable_agent)
-        self.assertIn("-m grok-4.6 --reasoning-effort xhigh", workflow)
+        self.assertIn("-m grok-4.7 --reasoning-effort xhigh", workflow)
         self.assertIn("model: 'fable'", workflow)
-        self.assertIn("Grok 4.6", rjv_skill)
-        self.assertIn("Fable 5.1", rjv_skill)
+        self.assertIn("Grok 4.7", rjv_skill)
+        self.assertIn("Fable 5.2", rjv_skill)
         self.assertNotIn("model: 'opus'", workflow)
-        self.assertIn("claude-fable-5-1", workflow)
+        self.assertIn("claude-fable-5-2", workflow)
         codex_agent = (ROOT / "agents" / "codex-implementer.md").read_text(encoding="utf-8")
         dcode_agent = (ROOT / "agents" / "dcode-implementer.md").read_text(encoding="utf-8")
         doctor = (ROOT / "bin" / "omnicode-doctor").read_text(encoding="utf-8")
         for content in (codex_agent, dcode_agent, workflow, skill, rjv_skill, doctor):
             self.assertNotIn("gpt-5.6-sol", content)
             self.assertNotIn("GPT-5.6-Sol", content)
-            self.assertRegex(content, r"gpt-6-astra|GPT-6 Astra")
-        self.assertIn("-m gpt-6-astra", codex_agent)
-        self.assertIn("-M openai_codex:gpt-6-astra", dcode_agent)
-        self.assertIn("-m gpt-6-astra -c model_reasoning_effort=max", workflow)
+            self.assertRegex(content, r"gpt-6.2-astra|GPT-6.2 Astra")
+        self.assertIn("-m gpt-6.2-astra", codex_agent)
+        self.assertIn("-M openai_codex:gpt-6.2-astra", dcode_agent)
+        self.assertIn("-m gpt-6.2-astra -c model_reasoning_effort=max", workflow)
         self.assertIn("completeArtifactText", workflow)
         self.assertIn("completeArtifactText", doctor)
         self.assertIn("raceRunId: '<unique-safe-id>'", rjv_skill)
@@ -214,7 +214,7 @@ class ModelPolicyTest(unittest.TestCase):
         )
         self.assertIsNotNone(probe)
         astra = {
-            "slug": "gpt-6-astra",
+            "slug": "gpt-6.2-astra",
             "context_window": 272000,
             "max_context_window": 872000,
             "supported_reasoning_levels": [{"effort": "max"}],
@@ -501,6 +501,9 @@ class ApplySafetyTest(unittest.TestCase):
             (home / ".uib" / "node_modules" / "playwright").mkdir(parents=True)
             (home / ".claude" / "skills").mkdir(parents=True)
             (home / ".agents" / "skills").mkdir(parents=True)
+            # ChatCut Desktop owns these; apply must tolerate them and leave them alone.
+            (home / ".agents" / "skills" / "chatcut-doctor").mkdir()
+            (home / ".agents" / "skills" / ".chatcut-desktop-skills.json").write_text("{}\n", encoding="utf-8")
             (home / ".cursor" / "skills").mkdir(parents=True)
             canonical_marker = home / ".claude" / "skills" / "keep-me"
             canonical_marker.write_text("canonical content\n", encoding="utf-8")
@@ -526,7 +529,10 @@ class ApplySafetyTest(unittest.TestCase):
             for generic_root in (home / ".agents" / "skills", home / ".cursor" / "skills"):
                 self.assertTrue(generic_root.is_dir())
                 self.assertFalse(generic_root.is_symlink())
-                self.assertEqual(list(generic_root.iterdir()), [])
+                self.assertEqual(
+                    sorted(entry.name for entry in generic_root.iterdir()),
+                    [".chatcut-desktop-skills.json", "chatcut-doctor"] if generic_root.parent.name == ".agents" else [],
+                )
             self.assertEqual(canonical_marker.read_text(encoding="utf-8"), "canonical content\n")
             omnicode = home / ".claude" / "skills" / "omnicode"
             self.assertTrue(omnicode.is_symlink())
@@ -540,15 +546,15 @@ class ApplySafetyTest(unittest.TestCase):
             installed_models = home / ".claude" / "omnicode" / "models.json"
             self.assertEqual(
                 json.loads(installed_models.read_text(encoding="utf-8"))["grok"]["model"],
-                "grok-4.6",
+                "grok-4.7",
             )
             policy = json.loads(installed_models.read_text(encoding="utf-8"))
-            self.assertEqual(policy["codex"]["model"], "gpt-6-astra")
-            self.assertEqual(policy["dcode"]["model"], "openai_codex:gpt-6-astra")
-            self.assertEqual(policy["claude"]["rjv_judge"]["resolved"], "claude-fable-5-1")
+            self.assertEqual(policy["codex"]["model"], "gpt-6.2-astra")
+            self.assertEqual(policy["dcode"]["model"], "openai_codex:gpt-6.2-astra")
+            self.assertEqual(policy["claude"]["rjv_judge"]["resolved"], "claude-fable-5-2")
             installed_rjv = home / ".claude" / "skills" / "rjv" / "SKILL.md"
-            self.assertIn("Grok 4.6", installed_rjv.read_text(encoding="utf-8"))
-            self.assertIn("GPT-6 Astra", installed_rjv.read_text(encoding="utf-8"))
+            self.assertIn("Grok 4.7", installed_rjv.read_text(encoding="utf-8"))
+            self.assertIn("GPT-6.2 Astra", installed_rjv.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -16,14 +16,14 @@ metadata:
 
 **Current policy:** no Gemini or Antigravity lane. Cross-vendor review routes to Grok first, Codex second. Machine-readable model/context/effort truth lives in `~/Projects/omnicode/config/models.json`.
 
-## Current model policy (Fable/Astra updated 2026-09-04)
+## Current model policy (updated 2026-11-19: Fable 5.2, GPT-6.2 Astra, Grok 4.7; previous update 2026-09-04)
 
-- Wrapper supervisors: latest `sonnet` alias → Claude Sonnet 5, 1M context, adaptive/high-default reasoning. Keep this efficient relay model; vendor CLIs do the task.
-- Architecture commitment advisor: latest `fable` alias → Claude Fable 5.1, 1M context. `fable-advisor` must explicitly set `model: fable`.
-- Correctness and dcode: `gpt-6-astra`, `max` reasoning, 272K configured ChatGPT-subscription context (258.4K effective). Never `ultra` because it launches internal subagents.
-- Routine implementation/review: `grok-4.6`, 500K context, `high` reasoning. RJV alone raises Grok to `xhigh`.
+- Wrapper supervisors: latest `sonnet` alias → Claude Sonnet 5.5, 1M context, adaptive/high-default reasoning. Keep this efficient relay model; vendor CLIs do the task.
+- Architecture commitment advisor: latest `fable` alias → Claude Fable 5.2, 1M context. `fable-advisor` must explicitly set `model: fable`.
+- Correctness and dcode: `gpt-6.2-astra`, `max` reasoning, 272K configured ChatGPT-subscription context (258.4K effective). Never `ultra` because it launches internal subagents.
+- Routine implementation/review: `grok-4.7`, 500K context, `high` reasoning. RJV alone raises Grok to `xhigh`.
 - Long-context/verifier: `glm --model opus` → `glm-5.3[1m]`, 1M context, launcher-enforced `max`.
-- RJV: Fable 5.1 implementer + GPT-6 Astra max + Grok 4.6 xhigh → Fable 5.1 judge → GLM-5.3 max verifier.
+- RJV: Fable 5.2 implementer + GPT-6.2 Astra max + Grok 4.7 xhigh → Fable 5.2 judge → GLM-5.3 max verifier.
 
 Context routing: ≤258K all lanes fit; 258K–500K use Grok/Claude/GLM; 500K–1M use Claude or GLM; above 1M chunk. Astra's ChatGPT catalog defaults to 272K and advertises an optional 872K maximum. Omnicode keeps 272K configured and never switches from ChatGPT subscription auth to API-key billing; the larger window is not enabled.
 
@@ -59,12 +59,14 @@ Research-backed design (Codex Goal Mode + LangGraph checkpointer + Omnigent sess
 
 ## Routing (architect picks per task)
 
-- Pure coding / well-specified → **grok default** — ONLY with a complete 5-part spec; grok freestyles where the spec is silent (2026-07-09 eval), so the lane bounces incomplete specs back (`STATUS: spec-incomplete`) instead of running. Correctness-critical single lane → codex (GPT-6 Astra max).
-- LangGraph / LangChain / deepagents agent code → **dcode** (DeepAgents Code — LangChain's own dogfooded harness; GPT-6 Astra @ max effort on the ChatGPT sub). Same 5-part-spec gate. Same family as codex (shared ChatGPT quota) — adds harness fit for LangChain-native work, NOT diversity; never counts as an extra race family. Harness prompts are NOT langgraph-specialized (checked v0.1.34) — the routing is a live bet; judge on real tasks, demote if it doesn't beat grok/codex there. Gotchas: [dcode-deepagents-code.md](dcode-deepagents-code.md).
-- Correctness-critical/high-stakes → race-and-judge: Fable 5.1 + GPT-6 Astra max + Grok 4.6 xhigh implement independently → Fable 5.1 judges → GLM-5.3 max verifies. It fails closed unless candidates completed with independent verification and GLM returns `sound`.
-- Architecture/migration/refactor → consult the explicitly pinned Fable 5.1 `fable-advisor` at the boundary.
-- Long context → use the verified window table above. `lane-pick longcontext` starts with GLM-5.3 (1M), falls back to Grok 4.6 (500K), then the architect session. Never send >258.4K to subscription Codex or >500K to Grok.
-- Read/explore → Haiku (built-in Explore).
+- **Default since 2026-11-19 (Casper: «make models autouse these system by default, and ask me if they wanne go full flagship instead»):** the `orch` skill runs automatically in every primary session and sends work to these lanes by class without waiting to be asked. Running a substantive task entirely on flagship models, race-and-judge included, needs Casper's yes first: one question with the reason, the rough extra cost and a recommendation. Unattended runs stay on the default.
+
+- Pure coding / well-specified → **grok default** — ONLY with a complete 5-part spec; grok freestyles where the spec is silent (2026-07-09 eval), so the lane bounces incomplete specs back (`STATUS: spec-incomplete`) instead of running. Correctness-critical single lane → codex (GPT-6.2 Astra max).
+- LangGraph / LangChain / deepagents agent code → **dcode** (DeepAgents Code — LangChain's own dogfooded harness; GPT-6.2 Astra @ max effort on the ChatGPT sub). Same 5-part-spec gate. Same family as codex (shared ChatGPT quota) — adds harness fit for LangChain-native work, NOT diversity; never counts as an extra race family. Harness prompts are NOT langgraph-specialized (checked v0.1.34) — the routing is a live bet; judge on real tasks, demote if it doesn't beat grok/codex there. Gotchas: [dcode-deepagents-code.md](dcode-deepagents-code.md).
+- Correctness-critical/high-stakes → race-and-judge: Fable 5.2 + GPT-6.2 Astra max + Grok 4.7 xhigh implement independently → Fable 5.2 judges → GLM-5.3 max verifies. It fails closed unless candidates completed with independent verification and GLM returns `sound`.
+- Architecture/migration/refactor → consult the explicitly pinned Fable 5.2 `fable-advisor` at the boundary.
+- Long context → use the verified window table above. `lane-pick longcontext` starts with GLM-5.3 (1M), falls back to Grok 4.7 (500K), then the architect session. Never send >258.4K to subscription Codex or >500K to Grok.
+- Read/explore → `orch-explorer` (Sonnet for discovery that feeds a decision; pass `model: haiku` for a plain lookup). Built-in Explore no longer runs on Haiku by default.
 - Lane `unavailable`/`timeout` → re-route to another lane, state plainly; never silent fallback to Claude.
 
 ## 5-part spec (every CLI delegation)
@@ -74,10 +76,10 @@ Objective · Files · Interfaces · Constraints · Verification command. A spec 
 ## Lane invocation (write spec to `mktemp`, never inline/fixed path — parallel lanes corrupt each other)
 
 - **Visibility:** every vendor invocation runs through `lanes start <lane> -- <cmd>` (`~/.local/bin/lanes`): named tmux session pinned to cwd, durable log, completion channel, and recorded vendor exit code. `lanes wait <sess> 540`: 0 = vendor success, 142 = still running, other = failed. `lanes result <sess>` replays the recorded exit. Pi launches vendors directly this way. Claude Code may use wrappers, which must still launch through `lanes`.
-- codex (GPT-6 Astra): `codex exec --ignore-user-config -m gpt-6-astra -c model_reasoning_effort=max -c model_context_window=272000 -c approval_policy="never" -s workspace-write --skip-git-repo-check -C "$(pwd)" -o "$FINAL" "$(cat "$SPEC")"` — the prompt is positional. Never use `- < "$SPEC"` under `lanes`; detached stdin hangs. `max` is the highest Omnicode-approved single-agent effort; never `ultra`.
-- grok routine (Grok 4.6, 500K): `grok --prompt-file "$SPEC" -m grok-4.6 --reasoning-effort high --permission-mode acceptEdits --output-format plain --cwd "$(pwd)" --no-plan --max-turns 120 --no-memory --no-subagents --disable-web-search`. RJV alone uses `xhigh`. Never omit `-m` or use `bypassPermissions`.
+- codex (GPT-6.2 Astra): `codex exec --ignore-user-config -m gpt-6.2-astra -c model_reasoning_effort=max -c model_context_window=272000 -c approval_policy="never" -s workspace-write --skip-git-repo-check -C "$(pwd)" -o "$FINAL" "$(cat "$SPEC")"` — the prompt is positional. Never use `- < "$SPEC"` under `lanes`; detached stdin hangs. `max` is the highest Omnicode-approved single-agent effort; never `ultra`.
+- grok routine (Grok 4.7, 500K): `grok --prompt-file "$SPEC" -m grok-4.7 --reasoning-effort high --permission-mode acceptEdits --output-format plain --cwd "$(pwd)" --no-plan --max-turns 120 --no-memory --no-subagents --disable-web-search`. RJV alone uses `xhigh`. Never omit `-m` or use `bypassPermissions`.
 - glm (GLM-5.3, 1M ctx, scoped z.ai env, read-only analysis): `glm --model opus -p "$(cat "$SPEC")"`
-- dcode (DeepAgents Code / LangChain harness; ChatGPT subscription only): `cd <project root>` first, then `perl -e 'alarm shift; exec @ARGV' 960 env -u OPENAI_API_KEY -u OPENAI_BASE_URL LANGSMITH_TRACING=false dcode --no-mcp -M openai_codex:gpt-6-astra --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}' -S all -q --timeout 900 -n "$(cat "$SPEC")"`. `-S all` is mandatory in headless mode (since ~0.1.4x `-n` runs have NO shell without an allow-list — dcode cannot run git/tests/verification; verified 2026-08-16); `--no-mcp` stays by policy for lanes; only the `openai_codex` subscription engine is allowed. Gotchas: [dcode-deepagents-code.md](dcode-deepagents-code.md).
+- dcode (DeepAgents Code / LangChain harness; ChatGPT subscription only): `cd <project root>` first, then `perl -e 'alarm shift; exec @ARGV' 960 env -u OPENAI_API_KEY -u OPENAI_BASE_URL LANGSMITH_TRACING=false dcode --no-mcp -M openai_codex:gpt-6.2-astra --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}' -S all -q --timeout 900 -n "$(cat "$SPEC")"`. `-S all` is mandatory in headless mode (since ~0.1.4x `-n` runs have NO shell without an allow-list — dcode cannot run git/tests/verification; verified 2026-08-16); `--no-mcp` stays by policy for lanes; only the `openai_codex` subscription engine is allowed. Gotchas: [dcode-deepagents-code.md](dcode-deepagents-code.md).
 - Portable timeout (macOS has no `timeout`/`gtimeout` without coreutils): `T=$(command -v gtimeout || command -v timeout || true); ${T:+$T 600} <cmd>`. Or `perl -e 'alarm shift; exec @ARGV' 600 <cmd>`.
 - ⚠️ **stdin redirects do NOT survive `lanes start`** (2026-07-17: codex lane hung 35 min, empty log): `lanes start x -- codex exec … - < "$SPEC"` applies the redirect to `lanes start` itself, while codex inside tmux waits forever on a tty stdin. Through lanes, always pass prompts by flag/argument (`--prompt-file`, `-p "$(cat …)"`, positional arg) or wrap the whole redirect: `lanes start x -- bash -c 'codex exec … - < spec.txt'`. Empty lane log after minutes = stdin hang, not thinking.
 
@@ -95,7 +97,7 @@ GAPS: … | none
 
 ## Race-and-judge (high-stakes only; ~4× tokens)
 
-User-invocable via `/rjv`. Fable 5.1 (1M) + GPT-6 Astra max (272K configured) + Grok 4.6 xhigh (500K) implement the same five-part spec in isolated worktrees. Only complete, independently verified candidates reach the Fable 5.1 judge. The workflow normalizes the winning path from known candidate records; GLM-5.3 max then adversarially verifies. Apply is allowed only when `readyToApply: true`, followed by architect inspection and a fresh verification run.
+User-invocable via `/rjv`. Fable 5.2 (1M) + GPT-6.2 Astra max (272K configured) + Grok 4.7 xhigh (500K) implement the same five-part spec in isolated worktrees. Only complete, independently verified candidates reach the Fable 5.2 judge. The workflow normalizes the winning path from known candidate records; GLM-5.3 max then adversarially verifies. Apply is allowed only when `readyToApply: true`, followed by architect inspection and a fresh verification run.
 
 **⚠️ Golden-fixture / benchmark isolation (validated 2026-07-09, parseNokPrice eval):** never co-locate the reference solution or the hidden test suite anywhere implementer lanes can read. With the reference + oracle sitting under `/tmp/.../reference` and `/hidden`, **2 of 3 autonomous CLI lanes (grok, agy) roamed the filesystem, found the reference, and submitted it verbatim** (diff-identical, including comments) — their self-reported 22/22 was fraudulent. codex + a direct GLM subagent wrote genuine code blind. After moving every copyable artifact out, grok+agy re-ran genuine and scored perfect. **Rule:** each lane gets a dir/worktree containing ONLY the spec + a public smoke test; trust NOTHING self-reported until you re-run the oracle yourself. **GPT-5.6-Sol note (2026-07-09):** Sol is specifically documented to fabricate eval results (reports tests as passing that it never fully ran) — these isolation + re-run-the-oracle rules are non-negotiable for the codex lane. **Verify by differential consensus** (N independent implementations + the oracle over a large adversarial input set) — stronger than a single cross-vendor prose review and resilient when a verifier endpoint is unavailable.
 
@@ -108,14 +110,14 @@ Consult `fable-advisor` (explicit latest `fable` alias, 1M context; read-only, <
 ## Invocation right-sizing & fallbacks
 
 - Token order: direct **Bash** (one-shot lane call) < **Agent tool** (single lane, clean context) < **Workflow** (~7× — ONLY for ≥3 independent lanes).
-- **Deep research:** route Grok 4.6 first, then GLM-5.3 and Codex as distinct angles through `lanes`, with URL+date citations or `WEB_UNAVAILABLE`. Do not add a Gemini lane.
+- **Deep research:** route Grok 4.7 first, then GLM-5.3 and Codex as distinct angles through `lanes`, with URL+date citations or `WEB_UNAVAILABLE`. Do not add a Gemini lane.
 - **Works under `glm` too:** when Anthropic limits burn, the GLM launcher can host compatible Claude Code surfaces; Codex and Grok remain external lanes. Note that an Opus alias under the GLM host is not a distinct Claude-family judge.
 - **Cross-CLI context:** doctrine auto-carries via the shared brain; task state does not. Use the goal ledger or an explicit handoff artifact before switching CLIs/sessions. The Workflow tool is Claude-Code-compatible; Codex and Grok orchestrate lanes via shell commands.
 
 ## Cost discipline
 
 - Architect emits judgment, not volume (no code blocks longer than an interface signature; fixing a lane's bug = corrected spec back to the lane, not hand-editing).
-- Lean context (delegate explore to Haiku; keep only conclusions in architect context).
+- Lean context (delegate explore to `orch-explorer`; keep only conclusions in architect context).
 - Race-and-judge gated to high-stakes; routine = single lane.
 - Cross-vendor verify uses **GLM-5.3** as an independent subscription-backed family. Fable remains the architecture commitment advisor when available.
 - Architect model = runtime `/model` choice: `fable` (quality-max) → `opus` (efficient) → `opusplan` (budget).
@@ -123,7 +125,7 @@ Consult `fable-advisor` (explicit latest `fable` alias, 1M context; read-only, <
 
 ## Auth hygiene (load-bearing — prevents surprise charges)
 
-- codex uses ChatGPT subscription auth. `lanes` strips `OPENAI_API_KEY` and other provider keys before launch; always pass `--ignore-user-config -m gpt-6-astra` so personal MCP credentials are excluded and model selection is explicit.
+- codex uses ChatGPT subscription auth. `lanes` strips `OPENAI_API_KEY` and other provider keys before launch; always pass `--ignore-user-config -m gpt-6.2-astra` so personal MCP credentials are excluded and model selection is explicit.
 - Gemini/Antigravity are not Omnicode lanes. Never route work there; image-specific Gemini credentials remain outside this system.
 - grok via xAI OAuth (grok.com login).
 - dcode uses only `openai_codex` = ChatGPT-subscription OAuth (LangChain's experimental `_ChatOpenAICodex`; **same quota pool as the codex lane** — parallel dcode+codex fan-outs drain one subscription). The wrapper never routes `xai`, `anthropic`, `openai`, or `openrouter` API-key providers, disables LangSmith tracing, and passes `--no-mcp` + `-S all`.
@@ -136,7 +138,7 @@ Databricks open-sourced **Omnigent** (`omnigent-ai/omnigent`, Apache-2.0, alpha,
 
 ## Status (model routing updated 2026-09-04)
 
-- Active lanes: Codex (GPT-6 Astra max, 272K configured context), Grok (Grok 4.6 high/xhigh, 500K), GLM (GLM-5.3 max, 1M), dcode (GPT-6 Astra max through `openai_codex`; same quota/family as Codex), Claude supervisors (Sonnet 5), Fable 5.1 racer, and Fable 5.1 advisor/judge. Gemini/Antigravity remain retired.
+- Active lanes: Codex (GPT-6.2 Astra max, 272K configured context), Grok (Grok 4.7 high/xhigh, 500K), GLM (GLM-5.3 max, 1M), dcode (GPT-6.2 Astra max through `openai_codex`; same quota/family as Codex), Claude supervisors (Sonnet 5), Fable 5.2 racer, and Fable 5.2 advisor/judge. Gemini/Antigravity remain retired.
 - Fallback router, durable vendor exit codes, quota groups, and the `uib` browser are live. Wrapper agents carry the fallback protocol; Codex prompts are positional under `lanes`.
 - Reliability hardening: portable perl-alarm timeout in all wrapper agents; `worktree.baseRef='head'`; unique race diff directories; staged binary diff capture includes untracked files; `lanes` strips provider API keys and GitHub credentials by default; Codex ignores personal config/MCPs; graceful `unavailable`→re-route; all-unavailable message diagnoses non-git cwd / CLIs-down.
 - **Validity (learned from parseNokPrice eval):** lanes will cheat if they can read the reference solution — isolate the reference + hidden tests from lane worktrees; trust NOTHING self-reported, re-run the oracle yourself; verify by differential consensus (N impls + oracle) so a down verify-CLI (z.ai GLM 529'd twice) doesn't block.

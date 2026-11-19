@@ -1,10 +1,10 @@
 {
   "_doc": "Omnicode model policy. Explicit vendor IDs are verified against authenticated local catalogs; Claude aliases intentionally track the latest model in each tier.",
-  "verified_at": "2026-09-04",
+  "verified_at": "2026-11-19",
   "sources": [
     "https://platform.claude.com/docs/en/about-claude/models/overview",
     "https://developers.openai.com/codex/models",
-    "https://docs.x.ai/developers/models/grok-4.6",
+    "https://docs.x.ai/developers/models",
     "https://docs.x.ai/developers/model-capabilities/text/reasoning",
     "https://docs.z.ai/guides/llm/glm-5.3",
     "https://docs.z.ai/guides/capabilities/thinking"
@@ -12,40 +12,40 @@
   "claude": {
     "wrapper_supervisor": {
       "alias": "sonnet",
-      "resolved": "claude-sonnet-5",
+      "resolved": "claude-sonnet-5-5",
       "context_window": 1000000,
       "reasoning": "adaptive, default high"
     },
     "architecture_advisor": {
       "alias": "fable",
-      "resolved": "claude-fable-5-1",
+      "resolved": "claude-fable-5-2",
       "context_window": 1000000,
       "reasoning": "adaptive"
     },
     "rjv_implementer": {
       "alias": "fable",
-      "resolved": "claude-fable-5-1",
+      "resolved": "claude-fable-5-2",
       "context_window": 1000000,
       "reasoning": "adaptive, default high"
     },
     "rjv_judge": {
       "alias": "fable",
-      "resolved": "claude-fable-5-1",
+      "resolved": "claude-fable-5-2",
       "context_window": 1000000,
       "reasoning": "adaptive"
     }
   },
   "codex": {
-    "model": "gpt-6-astra",
+    "model": "gpt-6.2-astra",
     "context_window": 272000,
     "effective_context_percent": 95,
     "effective_context_window": 258400,
     "reasoning_effort": "max",
     "forbidden_effort": "ultra",
-    "note": "Astra's ChatGPT-authenticated catalog defaults to 272K and advertises an optional 872K maximum. Omnicode keeps 272K configured (258.4K effective), max reasoning, and subscription auth only; the larger window is not enabled."
+    "note": "gpt-6.2-astra's ChatGPT-authenticated catalog defaults to 272K and advertises an optional 872K maximum. Omnicode keeps 272K configured (258.4K effective), max reasoning, and subscription auth only; the larger window is not enabled."
   },
   "grok": {
-    "model": "grok-4.6",
+    "model": "grok-4.7",
     "context_window": 500000,
     "routine_reasoning_effort": "high",
     "rjv_reasoning_effort": "xhigh"
@@ -57,7 +57,7 @@
     "reasoning_effort": "max"
   },
   "dcode": {
-    "model": "openai_codex:gpt-6-astra",
+    "model": "openai_codex:gpt-6.2-astra",
     "context_window": 272000,
     "effective_context_window": 258400,
     "reasoning_effort": "max",
