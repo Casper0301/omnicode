@@ -1,6 +1,6 @@
 ---
 name: rjv
-description: "Race-Judge-Verify for genuinely hard/high-stakes work. Runs the Omnicode race: Claude Fable 5.2 + GPT-6.2 Astra max + Grok 4.7 xhigh implement independently, Claude Fable 5.2 judges, and the cross-vendor lane that did not write the winner (Codex or Grok, read-only) verifies. Triggers on 'RJV', 'race-judge-verify', or 'race and judge'."
+description: "Race-Judge-Verify for genuinely hard/high-stakes work: Fable 5.2, GPT-6.2 Astra max and Grok 4.7 xhigh implement independently, Fable 5.2 judges, and the lane that did not write the winner (Codex or Grok) verifies. Triggers on 'RJV', 'race-judge-verify', or 'race and judge'."
 ---
 
 # RJV — Race-Judge-Verify
