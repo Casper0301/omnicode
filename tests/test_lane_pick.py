@@ -23,7 +23,7 @@ class LanePickAllowlistTest(unittest.TestCase):
         (self.home / "bin").mkdir()
         (self.home / ".claude" / "omnicode" / "ladders.json").write_text(
             json.dumps({
-                "classes": {"code": ["grok", "glm", "codex", "claude"]},
+                "classes": {"code": ["grok", "codex", "claude"]},
                 "quota_groups": {"openai": ["codex", "dcode"]},
             }),
             encoding="utf-8",
@@ -33,9 +33,7 @@ class LanePickAllowlistTest(unittest.TestCase):
             json.dumps({"default": {"expires_at": "2100-01-01T00:00:00.000000000Z"}}),
             encoding="utf-8",
         )
-        (self.home / ".config" / "zai").mkdir(parents=True)
-        (self.home / ".config" / "zai" / "token").write_text("opaque-test-token\n", encoding="utf-8")
-        for binary in ("grok", "glm", "codex"):
+        for binary in ("grok", "codex"):
             path = self.home / "bin" / binary
             path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             path.chmod(path.stat().st_mode | stat.S_IXUSR)
@@ -72,7 +70,6 @@ class LanePickAllowlistTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "codex\n")
         self.assertIn("grok", result.stderr)
-        self.assertNotIn("glm", result.stdout)
 
     def test_allowlist_rejects_empty_duplicate_unknown_and_out_of_ladder_lanes(self):
         for value in ("", "grok,grok", "grok,unknown", "dcode"):
@@ -99,7 +96,7 @@ class LanePickAllowlistTest(unittest.TestCase):
         )
         result = self.run_pick("code")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "glm\n")
+        self.assertEqual(result.stdout, "codex\n")
         self.assertIn("grok", result.stderr)
 
     def test_scan_ignores_dcode_oauth_notice_but_keeps_real_rate_limits(self):
@@ -166,8 +163,7 @@ class ModelPolicyTest(unittest.TestCase):
         self.assertEqual(models["grok"]["context_window"], 500_000)
         self.assertEqual(models["grok"]["routine_reasoning_effort"], "high")
         self.assertEqual(models["grok"]["rjv_reasoning_effort"], "xhigh")
-        self.assertEqual(models["glm"]["resolved"], "glm-5.3[1m]")
-        self.assertEqual(models["glm"]["reasoning_effort"], "max")
+        self.assertNotIn("glm", models)
 
     def test_active_surfaces_match_model_policy(self):
         grok_agent = (ROOT / "agents" / "grok-implementer.md").read_text(encoding="utf-8")
@@ -300,7 +296,10 @@ class ModelPolicyTest(unittest.TestCase):
         ladders = json.loads((ROOT / "config" / "ladders.json").read_text(encoding="utf-8"))
         self.assertEqual(ladders["classes"]["research"][0], "grok")
         self.assertEqual(ladders["classes"]["review"][0], "grok")
-        self.assertEqual(ladders["classes"]["longcontext"][:2], ["glm", "grok"])
+        self.assertEqual(ladders["classes"]["longcontext"], ["grok", "claude"])
+        for lanes in ladders["classes"].values():
+            self.assertNotIn("glm", lanes)
+        self.assertFalse((ROOT / "agents" / "glm-longcontext.md").exists())
         self.assertEqual(ladders["classes"]["langchain"][:2], ["dcode", "grok"])
 
 

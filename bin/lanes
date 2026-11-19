@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lanes — run omnicode CLI lanes (codex/grok/glm/dcode) in named tmux sessions:
+# lanes — run omnicode CLI lanes (codex/grok/dcode) in named tmux sessions:
 # watchable live, log-backed, completion-signaled, with the vendor exit code persisted.
 #
 #   lanes start <name> -- <command...>   launch detached; prints SESSION= and LOG=

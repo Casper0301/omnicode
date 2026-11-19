@@ -34,13 +34,13 @@ cp "$H/.claude/omnicode/ladders.json" "$REPO/config/ladders.json"
 [ -f "$H/.claude/omnicode/models.json" ] && \
   cp "$H/.claude/omnicode/models.json" "$REPO/config/models.json"
 
-# Active lane wrapper agents. Gemini/Antigravity lanes are retired by policy.
-for a in fable-advisor codex-implementer grok-implementer glm-longcontext \
-         dcode-implementer; do
+# Active lane wrapper agents. Gemini/Antigravity and GLM lanes are retired by policy.
+for a in fable-advisor codex-implementer grok-implementer dcode-implementer; do
   cp "$H/.claude/agents/$a.md" "$REPO/agents/$a.md"
 done
 rm -f "$REPO/agents/antigravity-implementer.md" \
-      "$REPO/agents/gemini-reviewer.md"
+      "$REPO/agents/gemini-reviewer.md" \
+      "$REPO/agents/glm-longcontext.md"
 
 # Workflow + companion skill
 cp "$H/.claude/workflows/race-and-judge.mjs" "$REPO/workflows/race-and-judge.mjs"

@@ -1,6 +1,6 @@
 ---
 name: omnicode
-description: "Route work across omnicode lanes (codex/grok/glm/dcode): implementation, review, quota fallback, durable goals, race-and-judge, uib UI review. Use when orch sends work to a lane, or for lane-pick, goal ledger, RJV, model/CLI routing."
+description: "Route work across omnicode lanes (codex/grok/dcode): implementation, review, quota fallback, durable goals, race-and-judge, uib UI review. Use when orch sends work to a lane, or for lane-pick, goal ledger, RJV, model/CLI routing."
 ---
 
 # omnicode — reliable multi-model orchestration
@@ -16,13 +16,13 @@ The current session is the architect and final authority. Subscription-backed ex
 | Well-specified code | `lane-pick code` (normally grok) |
 | Correctness-critical code/review | `lane-pick correctness` (normally codex) |
 | LangGraph/LangChain/deepagents code | `lane-pick langchain` (normally dcode; shares codex quota) |
-| Long-context/bulk analysis | `lane-pick longcontext` (GLM-5.3 1M; Grok 4.7 500K fallback) |
+| Long-context/bulk analysis | `lane-pick longcontext` (Grok 4.7 500K; beyond that the architect session or a native Claude worker, 1M) |
 | Research or adversarial review | `lane-pick research` / `lane-pick review` |
 | Architecture/API/migration/refactor | architect session; consult `fable-advisor` when available |
 | UI implementation/review | architect plus `uib`; route code by risk |
 | High-stakes implementation | `/rjv` only after the RJV preflight below |
 
-**No Gemini/Antigravity lane.** Current policy routes non-Anthropic cross-checks to Grok first, Codex second.
+**No Gemini/Antigravity lane and no GLM lane** (Z.ai cancelled 2026-11-19). Current policy routes non-Anthropic cross-checks to Grok first, Codex second; long context goes to Grok (500K), then the architect session or a native Claude worker (1M).
 
 ## Current model policy
 
@@ -32,10 +32,10 @@ The current session is the architect and final authority. Subscription-backed ex
 | Architecture advisor | latest `fable` alias → Fable 5.2 | 1M | adaptive |
 | Correctness / dcode | `gpt-6.2-astra` | 272K configured limit (258.4K effective) | `max`; never `ultra` |
 | Routine code / review | `grok-4.7` | 500K | `high` routine; `xhigh` only in RJV |
-| Long-context / verifier | `glm --model opus` → `glm-5.3[1m]` | 1M | launcher-enforced `max` |
+| RJV verifier | cross-vendor lane that did not write the winner: Codex (`gpt-6.2-astra`, `max`) or Grok (`grok-4.7`, `xhigh`), both read-only | per lane | per lane |
 | RJV Claude implementer / judge | Fable 5.2 / Fable 5.2 | 1M each | adaptive |
 
-The machine-readable source is `~/Projects/omnicode/config/models.json`. Claude aliases intentionally follow the latest tier. Grok and Codex use explicit authenticated model IDs. Input guidance: up to 258K all lanes fit; 258K–500K use Grok/Claude/GLM; 500K–1M use Claude or GLM; above 1M chunk the task.
+The machine-readable source is `~/Projects/omnicode/config/models.json`. Claude aliases intentionally follow the latest tier. Grok and Codex use explicit authenticated model IDs. Input guidance: up to 258K all lanes fit; 258K–500K use Grok or Claude; 500K–1M use Claude (architect session or native worker); above 1M chunk the task.
 
 Every implementation delegation needs five explicit parts: **Objective · Files · Interfaces · Constraints · Verification command**. If any part is unclear, finish the decision in the architect session instead of delegating ambiguity.
 

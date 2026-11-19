@@ -4,13 +4,13 @@
     "openai": ["codex", "dcode"]
   },
   "classes": {
-    "code": ["grok", "glm", "codex", "claude"],
-    "correctness": ["codex", "glm", "grok", "claude"],
-    "langchain": ["dcode", "grok", "glm", "claude"],
-    "longcontext": ["glm", "grok", "claude"],
-    "research": ["grok", "glm", "codex", "claude"],
-    "review": ["grok", "glm", "codex", "claude"],
-    "ui": ["claude", "glm", "codex", "grok"],
+    "code": ["grok", "codex", "claude"],
+    "correctness": ["codex", "grok", "claude"],
+    "langchain": ["dcode", "grok", "claude"],
+    "longcontext": ["grok", "claude"],
+    "research": ["grok", "codex", "claude"],
+    "review": ["grok", "codex", "claude"],
+    "ui": ["claude", "codex", "grok"],
     "architecture": ["claude"]
   }
 }

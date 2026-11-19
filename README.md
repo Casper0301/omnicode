@@ -1,6 +1,6 @@
 # omnicode
 
-Multi-model orchestration: one trusted architect session routes bounded work to subscription-backed Codex, Grok, GLM, and dcode lanes, then independently verifies the result. Visible tmux execution, quota-aware fallback, a durable goal ledger, isolated high-stakes race-and-judge, and a clean-profile UI loop.
+Multi-model orchestration: one trusted architect session routes bounded work to subscription-backed Codex, Grok, and dcode lanes, then independently verifies the result. Visible tmux execution, quota-aware fallback, a durable goal ledger, isolated high-stakes race-and-judge, and a clean-profile UI loop.
 
 ## Install
 
@@ -10,7 +10,7 @@ git clone https://github.com/Casper0301/omnicode.git ~/Projects/omnicode
 omnicode-doctor
 ```
 
-Needs the vendor CLIs you already pay for (Claude Code, and at least one of Codex / Grok / GLM). Subscription auth only — no API keys.
+Needs the vendor CLIs you already pay for (Claude Code, and at least one of Codex / Grok). Subscription auth only — no API keys.
 
 **Current lane policy:** no Gemini or Antigravity lane. Non-Anthropic cross-checks route to Grok first and Codex second.
 
@@ -29,8 +29,8 @@ The repo versions the system. `scripts/pull.sh` syncs live → repo with a secre
 | `bin/omnicode-doctor` | Functional installation and behavior checks |
 | `config/models.json` | Verified model IDs, context windows, and role-specific reasoning policy |
 | `config/ladders.json` | Ordered fallback ladders and shared quota groups |
-| `agents/` | Active Claude Code wrapper agents: Fable advisor, Codex, Grok, GLM, dcode |
-| `workflows/race-and-judge.mjs` | High-stakes race: Fable 5.2 / GPT-6.2 Astra max / Grok 4.7 xhigh; Fable 5.2 judges; GLM-5.3 max verifies |
+| `agents/` | Active Claude Code wrapper agents: Fable advisor, Codex, Grok, dcode |
+| `workflows/race-and-judge.mjs` | High-stakes race: Fable 5.2 / GPT-6.2 Astra max / Grok 4.7 xhigh; Fable 5.2 judges; the cross-vendor lane that did not write the winner (Codex or Grok) verifies |
 | `skill/SKILL.md` | Harness-aware operational interface discovered by Pi and Claude Code |
 | `skills/rjv/SKILL.md` | Repo-owned high-stakes race companion skill |
 | `doctrine/` | Versioned copy of the external doctrine source |
@@ -44,7 +44,7 @@ The repo versions the system. `scripts/pull.sh` syncs live → repo with a secre
 | Architecture advisor | Fable 5.2 (`fable` alias) | 1M | adaptive |
 | Correctness / dcode | GPT-6.2 Astra | 272K configured limit, 258.4K effective | max; never ultra |
 | Routine code / review | Grok 4.7 | 500K | high; xhigh only in RJV |
-| Long-context / verify | GLM-5.3 (`glm --model opus`) | 1M | max |
+| Long context | Grok 4.7 up to 500K, then the architect session or a native Claude worker | 1M | adaptive |
 | RJV Claude implementer / judge | Fable 5.2 | 1M | adaptive |
 
 Claude aliases intentionally follow the latest model in that tier. Grok and Codex are explicit pins validated against the authenticated CLI catalogs. Astra's ChatGPT-authenticated catalog defaults to 272K and advertises an optional 872K maximum. Omnicode keeps the 272K configured limit and subscription auth; this upgrade does not enable the larger window or `ultra`.

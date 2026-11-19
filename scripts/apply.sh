@@ -83,10 +83,11 @@ cp "$REPO/config/models.json"  "$H/.claude/omnicode/models.json"
 for a in "$REPO"/agents/*.md; do
   cp "$a" "$H/.claude/agents/$(basename "$a")"
 done
-# Current policy has no Gemini/Antigravity lane. Remove retired wrappers so
+# Current policy has no Gemini/Antigravity or GLM lane (Z.ai cancelled 2026-11-19). Remove retired wrappers so
 # agent discovery cannot advertise capabilities that must not be routed.
 rm -f "$H/.claude/agents/antigravity-implementer.md" \
-      "$H/.claude/agents/gemini-reviewer.md"
+      "$H/.claude/agents/gemini-reviewer.md" \
+      "$H/.claude/agents/glm-longcontext.md"
 
 cp "$REPO/workflows/race-and-judge.mjs" "$H/.claude/workflows/race-and-judge.mjs"
 

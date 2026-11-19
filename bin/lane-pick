@@ -19,12 +19,12 @@ LADDERS = os.path.expanduser("~/.claude/omnicode/ladders.json")
 HEALTH = os.path.expanduser("~/.lanes/health.json")
 
 # claude = the session/Agent-tool lane; always considered installed.
-BINARIES = {"codex": "codex", "grok": "grok", "glm": "glm",
+BINARIES = {"codex": "codex", "grok": "grok",
             "dcode": "dcode", "claude": None}
 
 # No-parse default cooldowns (seconds) per vendor.
 DEFAULT_COOLDOWN = {"codex": 21600, "dcode": 21600,
-                    "grok": 7200, "glm": 1800, "claude": 3600}
+                    "grok": 7200, "claude": 3600}
 TRANSIENT_COOLDOWN = 900
 
 # NOTE: no "out of credits"/"insufficient credits" here — those phrases describe
@@ -80,7 +80,6 @@ def healthy(lane, health):
 CREDENTIALS = {
     # lane: (path, kind)  — "oidc" files carry an expires_at we can read.
     "grok": (os.path.expanduser("~/.grok/auth.json"), "oidc"),
-    "glm": (os.path.expanduser("~/.config/zai/token"), "opaque"),
 }
 
 

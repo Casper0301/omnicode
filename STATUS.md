@@ -1,4 +1,4 @@
-omnicode-doctor — 2026-11-19 11:45 — host caspers-macbook-pro-1
+omnicode-doctor — 2026-11-19 12:25 — host caspers-macbook-pro-1
 
 == core binaries ==
 [PASS] tmux on PATH
@@ -13,7 +13,6 @@ omnicode-doctor — 2026-11-19 11:45 — host caspers-macbook-pro-1
 == lane CLIs + subscription auth (token-free probes) ==
 [PASS] codex installed + ChatGPT auth OK
 [PASS] grok installed + xAI auth OK
-[PASS] glm launcher + z.ai token present
 [PASS] dcode installed + openai_codex auth stored
 
 == fallback router (lane-pick + ladders) ==
@@ -21,10 +20,11 @@ omnicode-doctor — 2026-11-19 11:45 — host caspers-macbook-pro-1
 [PASS] ladders.json valid JSON
 [PASS] quota group openai contains codex+dcode
 [PASS] models.json matches the latest model/context/effort policy
+[PASS] GLM lane retired: no ladder routes to glm and glm-longcontext wrapper is absent
 [PASS] class code -> grok
 [PASS] class correctness -> codex
 [PASS] class langchain -> dcode
-[PASS] class longcontext -> glm
+[PASS] class longcontext -> grok
 [PASS] class research -> grok
 [PASS] class review -> grok
 [PASS] class ui -> claude
@@ -54,11 +54,9 @@ omnicode-doctor — 2026-11-19 11:45 — host caspers-macbook-pro-1
 [PASS] agent fable-advisor present
 [PASS] agent codex-implementer present
 [PASS] agent grok-implementer present
-[PASS] agent glm-longcontext present
 [PASS] agent dcode-implementer present
 [PASS] codex-implementer carries fallback protocol
 [PASS] grok-implementer carries fallback protocol
-[PASS] glm-longcontext carries fallback protocol
 [PASS] dcode-implementer carries fallback protocol
 [PASS] retired Gemini/Antigravity wrappers absent
 [PASS] codex-implementer stdin bug absent
@@ -82,7 +80,6 @@ omnicode-doctor — 2026-11-19 11:45 — host caspers-macbook-pro-1
 [PASS] rjv skill matches the current model policy
 [PASS] authenticated Grok catalog still offers grok-4.7 (the grok lane's pinned model)
 [PASS] Grok local defaults are pinned to grok-4.7 or newer
-[PASS] GLM launcher maps the 1M flagship and max reasoning budget
 [PASS] authenticated Codex catalog confirms GPT-6.2 Astra / 272K default / max
 [WARN] agent-harnesses MCP not in ~/.claude.json
 
@@ -101,4 +98,4 @@ omnicode-doctor — 2026-11-19 11:45 — host caspers-macbook-pro-1
 [PASS] no stale lane sessions
 
 == summary ==
-PASS=76 WARN=1 FAIL=0
+PASS=73 WARN=1 FAIL=0

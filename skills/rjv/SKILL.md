@@ -1,6 +1,6 @@
 ---
 name: rjv
-description: "Race-Judge-Verify for genuinely hard/high-stakes work. Runs the Omnicode race: Claude Fable 5.2 + GPT-6.2 Astra max + Grok 4.7 xhigh implement independently, Claude Fable 5.2 judges, and GLM-5.3 max verifies. Triggers on 'RJV', 'race-judge-verify', or 'race and judge'."
+description: "Race-Judge-Verify for genuinely hard/high-stakes work. Runs the Omnicode race: Claude Fable 5.2 + GPT-6.2 Astra max + Grok 4.7 xhigh implement independently, Claude Fable 5.2 judges, and the cross-vendor lane that did not write the winner (Codex or Grok, read-only) verifies. Triggers on 'RJV', 'race-judge-verify', or 'race and judge'."
 ---
 
 # RJV — Race-Judge-Verify
@@ -23,7 +23,7 @@ Workflow({ scriptPath: '~/.claude/workflows/race-and-judge.mjs', args: { spec: '
    - GPT-6.2 Astra, max reasoning, 272K configured context (258.4K effective)
    - Grok 4.7, xhigh reasoning, 500K context
 6. Claude Fable 5.2 (1M context) judges each complete `completeArtifactText` and binds its choice to the workflow-computed `artifactSha256` and byte count.
-7. GLM-5.3 (1M context, max reasoning) adversarially verifies that same digest-bound artifact and re-runs the trusted verification command.
+7. The cross-vendor lane that did not write the winner adversarially verifies that same digest-bound artifact in a throwaway copy and re-runs the trusted verification command: Codex (GPT-6.2 Astra, max reasoning, read-only) verifies Fable or Grok wins; Grok 4.7 (xhigh, read-only) verifies Codex wins. There is no GLM lane.
 8. Apply nothing unless `readyToApply: true` and `apply.command` is present. From the clean target repo, run exactly `apply.command`; never reconstruct or manually apply a diff. Inspect the staged result and the helper's verification output.
 
 Implementers do not see each other's work. The spec is the only shared task state during the race. The returned `completeArtifactText`, its workflow-computed digest, and the guarded helper are the apply authority—not model-reported filesystem state.

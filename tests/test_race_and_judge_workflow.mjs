@@ -93,14 +93,14 @@ async function runFixture(options = {}) {
       }
     }
 
-    if (opts.label?.startsWith('glm-verify ')) {
+    if (opts.label?.includes('-verify ')) {
       const winner = options.judge?.winner ?? 'fable'
       const returned = laneReturns.get(winner)
       const text = returned?.completeArtifactText ?? ''
       return {
         verdict: 'sound',
         keyFailure: 'no blocking issue found',
-        glmSaid: 'offline verification passed',
+        verifierSaid: 'offline verification passed',
         verifyCmdPassed: true,
         verifyCmdOutput: 'offline proof passed',
         artifactPathVerified: true,
@@ -187,10 +187,31 @@ test('binds each lane to its trusted artifact and reviews every byte before read
         'codex-lane [GPT-6.2 Astra]',
         'grok-lane [Grok]',
         'judge [Fable 5.2]',
-        'glm-verify [GLM-5.3]',
+        'codex-verify [GPT-6.2 Astra]',
       ],
     )
   } finally { cleanup(fixture) }
+})
+
+test('verifier is the cross-vendor lane that did not write the winner', async () => {
+  const expected = {
+    fable: { agentType: 'codex-implementer', label: 'codex-verify [GPT-6.2 Astra]', verifier: 'codex', cli: /codex exec --ignore-user-config -m gpt-6\.2-astra -c model_reasoning_effort=max .* -s read-only /, },
+    codex: { agentType: 'grok-implementer', label: 'grok-verify [Grok 4.7]', verifier: 'grok', cli: /grok --prompt-file "\$REVIEW" -m grok-4\.7 --reasoning-effort xhigh --permission-mode default /, },
+    grok: { agentType: 'codex-implementer', label: 'codex-verify [GPT-6.2 Astra]', verifier: 'codex', cli: /-s read-only --skip-git-repo-check -C "\$COPY"/, },
+  }
+  for (const [winner, want] of Object.entries(expected)) {
+    const fixture = await runFixture({ judge: { winner } })
+    try {
+      const call = fixture.calls.find((c) => c.opts.label?.includes('-verify '))
+      assert.equal(call.opts.agentType, want.agentType)
+      assert.equal(call.opts.label, want.label)
+      assert.equal(fixture.result.verifier, want.verifier)
+      assert.equal(fixture.result.readyToApply, true)
+      assert.match(call.prompt, want.cli)
+      for (const part of ['OBJECTIVE:', 'FILES:', 'INTERFACES:', 'CONSTRAINTS:', 'VERIFICATION COMMAND:']) assert.ok(call.prompt.includes(part), part)
+      assert.doesNotMatch(call.prompt, /glm/i)
+    } finally { cleanup(fixture) }
+  }
 })
 
 test('workflow UTF-8 byte count and digest match the deterministic apply helper inputs', async () => {
@@ -242,7 +263,7 @@ test('requires judge and verifier to bind their decisions to the workflow-comput
   try {
     assert.equal(badJudge.result.judge.winner, 'none')
     assert.equal(badJudge.result.readyToApply, false)
-    assert.equal(badJudge.calls.some((call) => call.opts.label?.startsWith('glm-verify ')), false)
+    assert.equal(badJudge.calls.some((call) => call.opts.label?.includes('-verify ')), false)
   } finally { cleanup(badJudge) }
 
   const badVerify = await runFixture({ verify: { verifiedArtifactSha256: 'f'.repeat(64) } })

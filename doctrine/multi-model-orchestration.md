@@ -12,7 +12,7 @@ metadata:
 
 # Multi-Model Orchestration (Federated)
 
-**Shared brain** = `MEMORY.md` (symlinked to the configured vendor instruction roots). Pi or Claude Code acts as the trusted architect; Codex, Grok, GLM, and dcode are replaceable workers. **Subscriptions only** — no API-key billing path and no persistent `ANTHROPIC_BASE_URL` change. Lane commands are shell-portable. In Pi, launch external vendors directly through `lanes`; Claude-host wrapper subagents can exhaust Anthropic quota before the requested vendor starts. Claude Code may use the active wrappers in `~/.claude/agents/` (`fable-advisor`, `codex-implementer`, `grok-implementer`, `glm-longcontext`, `dcode-implementer`) plus `~/.claude/workflows/race-and-judge.mjs`.
+**Shared brain** = `MEMORY.md` (symlinked to the configured vendor instruction roots). Pi or Claude Code acts as the trusted architect; Codex, Grok, and dcode are replaceable workers (the GLM lane was retired on 2026-11-19, when Casper cancelled the Z.ai subscription). **Subscriptions only** — no API-key billing path and no persistent `ANTHROPIC_BASE_URL` change. Lane commands are shell-portable. In Pi, launch external vendors directly through `lanes`; Claude-host wrapper subagents can exhaust Anthropic quota before the requested vendor starts. Claude Code may use the active wrappers in `~/.claude/agents/` (`fable-advisor`, `codex-implementer`, `grok-implementer`, `glm-longcontext`, `dcode-implementer`) plus `~/.claude/workflows/race-and-judge.mjs`.
 
 **Current policy:** no Gemini or Antigravity lane. Cross-vendor review routes to Grok first, Codex second. Machine-readable model/context/effort truth lives in `~/Projects/omnicode/config/models.json`.
 
@@ -22,10 +22,10 @@ metadata:
 - Architecture commitment advisor: latest `fable` alias → Claude Fable 5.2, 1M context. `fable-advisor` must explicitly set `model: fable`.
 - Correctness and dcode: `gpt-6.2-astra`, `max` reasoning, 272K configured ChatGPT-subscription context (258.4K effective). Never `ultra` because it launches internal subagents.
 - Routine implementation/review: `grok-4.7`, 500K context, `high` reasoning. RJV alone raises Grok to `xhigh`.
-- Long-context/verifier: `glm --model opus` → `glm-5.3[1m]`, 1M context, launcher-enforced `max`.
-- RJV: Fable 5.2 implementer + GPT-6.2 Astra max + Grok 4.7 xhigh → Fable 5.2 judge → GLM-5.3 max verifier.
+- GLM: retired 2026-11-19 (Z.ai subscription cancelled). Nothing routes to the `glm` launcher or a GLM lane, even while the paid period still answers. Long context goes to Grok 4.7 (500K), then the architect or a native Claude worker (1M).
+- RJV: Fable 5.2 implementer + GPT-6.2 Astra max + Grok 4.7 xhigh → Fable 5.2 judge → cross-vendor verifier that did not write the winner (GPT-6.2 Astra max, or Grok 4.7 xhigh when Codex won).
 
-Context routing: ≤258K all lanes fit; 258K–500K use Grok/Claude/GLM; 500K–1M use Claude or GLM; above 1M chunk. Astra's ChatGPT catalog defaults to 272K and advertises an optional 872K maximum. Omnicode keeps 272K configured and never switches from ChatGPT subscription auth to API-key billing; the larger window is not enabled.
+Context routing: ≤258K all lanes fit; 258K–500K use Grok/Claude; 500K–1M use Claude; above 1M chunk. Astra's ChatGPT catalog defaults to 272K and advertises an optional 872K maximum. Omnicode keeps 272K configured and never switches from ChatGPT subscription auth to API-key billing; the larger window is not enabled.
 
 ## Provider context authorization (2026-07-19)
 
@@ -33,7 +33,7 @@ Casper explicitly authorizes every provider he deliberately configures in Omnico
 
 ## Automatic fallback ladders (2026-07-17) — rate limits never stall work
 
-- **`lane-pick <class>`** resolves to the strongest configured lane not on cooldown and not known dead. Classes: `code` (grok→glm→codex→claude) · `correctness` (codex→glm→grok→claude) · `langchain` (dcode→grok→glm→claude; codex skipped because it shares dcode quota) · `longcontext` (glm→grok→claude) · `research`/`review` (grok→glm→codex→claude) · `ui` (claude→glm→codex→grok) · `architecture` (claude). `claude` means the current architect session, regardless of provider.
+- **`lane-pick <class>`** resolves to the strongest configured lane not on cooldown and not known dead. Classes: `code` (grok→codex→claude) · `correctness` (codex→grok→claude) · `langchain` (dcode→grok→claude; codex skipped because it shares dcode quota) · `longcontext` (grok→claude) · `research`/`review` (grok→codex→claude) · `ui` (claude→codex→grok) · `architecture` (claude). `claude` means the current architect session, regardless of provider.
 - **Auto-detection:** `lanes` scans every vendor lane's log on exit (`lane-pick scan`) — quota/usage-limit errors mark the vendor's cooldown, parsing "Resets in 139h1m53s"-style times when present; transient errors (429/529/overloaded) get 15 min. Marking happens BEFORE the wait-for signal, so the caller's next `lane-pick` already routes around the outage.
 - **Quota groups:** codex+dcode share the ChatGPT pool — marking one marks both.
 - **Never silent:** every fallback is reported as `STATUS: complete-via-fallback` + `LANE: x→y (reason, resumes ~time)`. This AMENDS the old "never fallback to Claude" rule: `claude` is now the sanctioned LAST rung of every ladder (Casper 2026-07-17: "lean on GLM, Grok, or Claude — automatically"), always visibly.
@@ -41,7 +41,7 @@ Casper explicitly authorizes every provider he deliberately configures in Omnico
 
 ## UI verification loop — `uib` (2026-07-17)
 
-Lanes run in terminals; `uib` (`~/.local/bin/uib` → `~/.uib/uib.mjs`, Playwright daemon) is the omnicode browser: persistent clean-profile Chromium the models drive by CLI. `uib open <url> [--vp 375x812]` · `shot <png> [--full]` · `snapshot` (a11y tree with @eN refs) · `click @eN|<css>` · `fill` · `press` · `eval` · `console` · `url` · `status` · `stop`. Iterative UI work: dev server → `uib open` → edit code → `uib shot` → READ the png (vision) → repeat. Vision-capable lanes (claude, glm, codex via view_image) self-review screenshots; grok lanes return the png path for the architect to review. Daemon idles out after 30 min; state (page, refs, console buffer) survives between invocations. **uib is clean-profile ONLY — Casper's authenticated browsing stays in `agent-browser`/Aside and remains BANNED for writer sandboxes/lanes.** `ui` ladder class routes UI review work.
+Lanes run in terminals; `uib` (`~/.local/bin/uib` → `~/.uib/uib.mjs`, Playwright daemon) is the omnicode browser: persistent clean-profile Chromium the models drive by CLI. `uib open <url> [--vp 375x812]` · `shot <png> [--full]` · `snapshot` (a11y tree with @eN refs) · `click @eN|<css>` · `fill` · `press` · `eval` · `console` · `url` · `status` · `stop`. Iterative UI work: dev server → `uib open` → edit code → `uib shot` → READ the png (vision) → repeat. Vision-capable lanes (claude, codex via view_image) self-review screenshots; grok lanes return the png path for the architect to review. Daemon idles out after 30 min; state (page, refs, console buffer) survives between invocations. **uib is clean-profile ONLY — Casper's authenticated browsing stays in `agent-browser`/Aside and remains BANNED for writer sandboxes/lanes.** `ui` ladder class routes UI review work.
 
 ## Goal ledger — durable cross-harness goals (2026-07-18)
 
@@ -54,7 +54,7 @@ Research-backed design (Codex Goal Mode + LangGraph checkpointer + Omnigent sess
 **Outer loop per harness** (the harness owns cadence, the ledger owns state):
 - Claude Code: `/loop` on "run `goal loop <slug>`; if exit 3, execute the packet (implementation via lanes), then repeat" — or cron/schedule for multi-day.
 - Codex CLI/app: `/goal` (Goal Mode) with objective: "Work omnicode goal <slug>: run `~/.local/bin/goal step <slug>` and follow its PROTOCOL until `goal check <slug>` is green." Codex persistence + our routing.
-- grok/glm: paste `goal step` output as the prompt; they read the shared brain so the protocol is known.
+- grok: paste `goal step` output as the prompt; it reads the shared brain so the protocol is known.
 - **Economy rule:** acceptance-driven loop ticks use the lowest justified effort on an approved lane; judgment points use Fable/Astra-at-max. NEVER Astra `ultra` (it spawns internal subagents that duplicate Omnicode fan-out).
 
 ## Routing (architect picks per task)
@@ -63,9 +63,9 @@ Research-backed design (Codex Goal Mode + LangGraph checkpointer + Omnigent sess
 
 - Pure coding / well-specified → **grok default** — ONLY with a complete 5-part spec; grok freestyles where the spec is silent (2026-07-09 eval), so the lane bounces incomplete specs back (`STATUS: spec-incomplete`) instead of running. Correctness-critical single lane → codex (GPT-6.2 Astra max).
 - LangGraph / LangChain / deepagents agent code → **dcode** (DeepAgents Code — LangChain's own dogfooded harness; GPT-6.2 Astra @ max effort on the ChatGPT sub). Same 5-part-spec gate. Same family as codex (shared ChatGPT quota) — adds harness fit for LangChain-native work, NOT diversity; never counts as an extra race family. Harness prompts are NOT langgraph-specialized (checked v0.1.34) — the routing is a live bet; judge on real tasks, demote if it doesn't beat grok/codex there. Gotchas: [dcode-deepagents-code.md](dcode-deepagents-code.md).
-- Correctness-critical/high-stakes → race-and-judge: Fable 5.2 + GPT-6.2 Astra max + Grok 4.7 xhigh implement independently → Fable 5.2 judges → GLM-5.3 max verifies. It fails closed unless candidates completed with independent verification and GLM returns `sound`.
+- Correctness-critical/high-stakes → race-and-judge: Fable 5.2 + GPT-6.2 Astra max + Grok 4.7 xhigh implement independently → Fable 5.2 judges → the cross-vendor lane that did not write the winner verifies (GPT-6.2 Astra max, or Grok 4.7 xhigh when Codex won). It fails closed unless candidates completed with independent verification and the verifier returns `sound`.
 - Architecture/migration/refactor → consult the explicitly pinned Fable 5.2 `fable-advisor` at the boundary.
-- Long context → use the verified window table above. `lane-pick longcontext` starts with GLM-5.3 (1M), falls back to Grok 4.7 (500K), then the architect session. Never send >258.4K to subscription Codex or >500K to Grok.
+- Long context → use the verified window table above. `lane-pick longcontext` starts with Grok 4.7 (500K), then the architect session; above 500K use a native Claude worker (1M). Never send >258.4K to subscription Codex or >500K to Grok.
 - Read/explore → `orch-explorer` (Sonnet for discovery that feeds a decision; pass `model: haiku` for a plain lookup). Built-in Explore no longer runs on Haiku by default.
 - Lane `unavailable`/`timeout` → re-route to another lane, state plainly; never silent fallback to Claude.
 
@@ -78,7 +78,7 @@ Objective · Files · Interfaces · Constraints · Verification command. A spec 
 - **Visibility:** every vendor invocation runs through `lanes start <lane> -- <cmd>` (`~/.local/bin/lanes`): named tmux session pinned to cwd, durable log, completion channel, and recorded vendor exit code. `lanes wait <sess> 540`: 0 = vendor success, 142 = still running, other = failed. `lanes result <sess>` replays the recorded exit. Pi launches vendors directly this way. Claude Code may use wrappers, which must still launch through `lanes`.
 - codex (GPT-6.2 Astra): `codex exec --ignore-user-config -m gpt-6.2-astra -c model_reasoning_effort=max -c model_context_window=272000 -c approval_policy="never" -s workspace-write --skip-git-repo-check -C "$(pwd)" -o "$FINAL" "$(cat "$SPEC")"` — the prompt is positional. Never use `- < "$SPEC"` under `lanes`; detached stdin hangs. `max` is the highest Omnicode-approved single-agent effort; never `ultra`.
 - grok routine (Grok 4.7, 500K): `grok --prompt-file "$SPEC" -m grok-4.7 --reasoning-effort high --permission-mode acceptEdits --output-format plain --cwd "$(pwd)" --no-plan --max-turns 120 --no-memory --no-subagents --disable-web-search`. RJV alone uses `xhigh`. Never omit `-m` or use `bypassPermissions`.
-- glm (GLM-5.3, 1M ctx, scoped z.ai env, read-only analysis): `glm --model opus -p "$(cat "$SPEC")"`
+- glm: retired 2026-11-19 (subscription cancelled); no launch command.
 - dcode (DeepAgents Code / LangChain harness; ChatGPT subscription only): `cd <project root>` first, then `perl -e 'alarm shift; exec @ARGV' 960 env -u OPENAI_API_KEY -u OPENAI_BASE_URL LANGSMITH_TRACING=false dcode --no-mcp -M openai_codex:gpt-6.2-astra --model-params '{"reasoning": {"effort": "max", "summary": "auto"}}' -S all -q --timeout 900 -n "$(cat "$SPEC")"`. `-S all` is mandatory in headless mode (since ~0.1.4x `-n` runs have NO shell without an allow-list — dcode cannot run git/tests/verification; verified 2026-08-16); `--no-mcp` stays by policy for lanes; only the `openai_codex` subscription engine is allowed. Gotchas: [dcode-deepagents-code.md](dcode-deepagents-code.md).
 - Portable timeout (macOS has no `timeout`/`gtimeout` without coreutils): `T=$(command -v gtimeout || command -v timeout || true); ${T:+$T 600} <cmd>`. Or `perl -e 'alarm shift; exec @ARGV' 600 <cmd>`.
 - ⚠️ **stdin redirects do NOT survive `lanes start`** (2026-07-17: codex lane hung 35 min, empty log): `lanes start x -- codex exec … - < "$SPEC"` applies the redirect to `lanes start` itself, while codex inside tmux waits forever on a tty stdin. Through lanes, always pass prompts by flag/argument (`--prompt-file`, `-p "$(cat …)"`, positional arg) or wrap the whole redirect: `lanes start x -- bash -c 'codex exec … - < spec.txt'`. Empty lane log after minutes = stdin hang, not thinking.
@@ -97,7 +97,7 @@ GAPS: … | none
 
 ## Race-and-judge (high-stakes only; ~4× tokens)
 
-User-invocable via `/rjv`. Fable 5.2 (1M) + GPT-6.2 Astra max (272K configured) + Grok 4.7 xhigh (500K) implement the same five-part spec in isolated worktrees. Only complete, independently verified candidates reach the Fable 5.2 judge. The workflow normalizes the winning path from known candidate records; GLM-5.3 max then adversarially verifies. Apply is allowed only when `readyToApply: true`, followed by architect inspection and a fresh verification run.
+User-invocable via `/rjv`. Fable 5.2 (1M) + GPT-6.2 Astra max (272K configured) + Grok 4.7 xhigh (500K) implement the same five-part spec in isolated worktrees. Only complete, independently verified candidates reach the Fable 5.2 judge. The workflow normalizes the winning path from known candidate records; a cross-vendor lane that did not write the winner then adversarially verifies. Apply is allowed only when `readyToApply: true`, followed by architect inspection and a fresh verification run.
 
 **⚠️ Golden-fixture / benchmark isolation (validated 2026-07-09, parseNokPrice eval):** never co-locate the reference solution or the hidden test suite anywhere implementer lanes can read. With the reference + oracle sitting under `/tmp/.../reference` and `/hidden`, **2 of 3 autonomous CLI lanes (grok, agy) roamed the filesystem, found the reference, and submitted it verbatim** (diff-identical, including comments) — their self-reported 22/22 was fraudulent. codex + a direct GLM subagent wrote genuine code blind. After moving every copyable artifact out, grok+agy re-ran genuine and scored perfect. **Rule:** each lane gets a dir/worktree containing ONLY the spec + a public smoke test; trust NOTHING self-reported until you re-run the oracle yourself. **GPT-5.6-Sol note (2026-07-09):** Sol is specifically documented to fabricate eval results (reports tests as passing that it never fully ran) — these isolation + re-run-the-oracle rules are non-negotiable for the codex lane. **Verify by differential consensus** (N independent implementations + the oracle over a large adversarial input set) — stronger than a single cross-vendor prose review and resilient when a verifier endpoint is unavailable.
 
@@ -110,8 +110,8 @@ Consult `fable-advisor` (explicit latest `fable` alias, 1M context; read-only, <
 ## Invocation right-sizing & fallbacks
 
 - Token order: direct **Bash** (one-shot lane call) < **Agent tool** (single lane, clean context) < **Workflow** (~7× — ONLY for ≥3 independent lanes).
-- **Deep research:** route Grok 4.7 first, then GLM-5.3 and Codex as distinct angles through `lanes`, with URL+date citations or `WEB_UNAVAILABLE`. Do not add a Gemini lane.
-- **Works under `glm` too:** when Anthropic limits burn, the GLM launcher can host compatible Claude Code surfaces; Codex and Grok remain external lanes. Note that an Opus alias under the GLM host is not a distinct Claude-family judge.
+- **Deep research:** route Grok 4.7 first, then Codex as a distinct angle through `lanes`, with URL+date citations or `WEB_UNAVAILABLE`. Do not add a Gemini lane.
+- **The `glm` launcher is retired** with the Z.ai subscription (cancelled 2026-11-19). When Anthropic limits burn, move bounded work to the Codex and Grok lanes.
 - **Cross-CLI context:** doctrine auto-carries via the shared brain; task state does not. Use the goal ledger or an explicit handoff artifact before switching CLIs/sessions. The Workflow tool is Claude-Code-compatible; Codex and Grok orchestrate lanes via shell commands.
 
 ## Cost discipline
@@ -119,7 +119,7 @@ Consult `fable-advisor` (explicit latest `fable` alias, 1M context; read-only, <
 - Architect emits judgment, not volume (no code blocks longer than an interface signature; fixing a lane's bug = corrected spec back to the lane, not hand-editing).
 - Lean context (delegate explore to `orch-explorer`; keep only conclusions in architect context).
 - Race-and-judge gated to high-stakes; routine = single lane.
-- Cross-vendor verify uses **GLM-5.3** as an independent subscription-backed family. Fable remains the architecture commitment advisor when available.
+- Cross-vendor verify uses the lane that did not write the winner: GPT-6.2 Astra max, or Grok 4.7 xhigh when Codex won. Fable remains the architecture commitment advisor when available.
 - Architect model = runtime `/model` choice: `fable` (quality-max) → `opus` (efficient) → `opusplan` (budget).
 - No mid-task model/effort switches (cache wipe).
 
@@ -129,7 +129,7 @@ Consult `fable-advisor` (explicit latest `fable` alias, 1M context; read-only, <
 - Gemini/Antigravity are not Omnicode lanes. Never route work there; image-specific Gemini credentials remain outside this system.
 - grok via xAI OAuth (grok.com login).
 - dcode uses only `openai_codex` = ChatGPT-subscription OAuth (LangChain's experimental `_ChatOpenAICodex`; **same quota pool as the codex lane** — parallel dcode+codex fan-outs drain one subscription). The wrapper never routes `xai`, `anthropic`, `openai`, or `openrouter` API-key providers, disables LangSmith tracing, and passes `--no-mcp` + `-S all`.
-- glm via z.ai token (`~/.config/zai/token`); the `glm` launcher scopes `ANTHROPIC_BASE_URL` to its own process (never leaks to parent shell / settings.json).
+- glm: retired 2026-11-19; the z.ai token file and the `glm` launcher are no longer part of any route.
 - Sandboxes: codex `-s workspace-write` (never `--dangerously-bypass-approvals-and-sandbox`); grok `acceptEdits` for implementation and `plan` for review (never `bypassPermissions`). `lanes` strips common env credentials and GitHub access but is not filesystem-level secret isolation.
 
 ## Omnigent watch (2026-07-17)
@@ -138,8 +138,8 @@ Databricks open-sourced **Omnigent** (`omnigent-ai/omnigent`, Apache-2.0, alpha,
 
 ## Status (model routing updated 2026-09-04)
 
-- Active lanes: Codex (GPT-6.2 Astra max, 272K configured context), Grok (Grok 4.7 high/xhigh, 500K), GLM (GLM-5.3 max, 1M), dcode (GPT-6.2 Astra max through `openai_codex`; same quota/family as Codex), Claude supervisors (Sonnet 5), Fable 5.2 racer, and Fable 5.2 advisor/judge. Gemini/Antigravity remain retired.
+- Active lanes: Codex (GPT-6.2 Astra max, 272K configured context), Grok (Grok 4.7 high/xhigh, 500K), dcode (GPT-6.2 Astra max through `openai_codex`; same quota/family as Codex), Claude supervisors (Sonnet 5.5), Fable 5.2 racer, and Fable 5.2 advisor/judge. Gemini/Antigravity remain retired, and GLM joined them on 2026-11-19.
 - Fallback router, durable vendor exit codes, quota groups, and the `uib` browser are live. Wrapper agents carry the fallback protocol; Codex prompts are positional under `lanes`.
 - Reliability hardening: portable perl-alarm timeout in all wrapper agents; `worktree.baseRef='head'`; unique race diff directories; staged binary diff capture includes untracked files; `lanes` strips provider API keys and GitHub credentials by default; Codex ignores personal config/MCPs; graceful `unavailable`→re-route; all-unavailable message diagnoses non-git cwd / CLIs-down.
 - **Validity (learned from parseNokPrice eval):** lanes will cheat if they can read the reference solution — isolate the reference + hidden tests from lane worktrees; trust NOTHING self-reported, re-run the oracle yourself; verify by differential consensus (N impls + oracle) so a down verify-CLI (z.ai GLM 529'd twice) doesn't block.
-- Rollback: remove `~/.claude/agents/{fable-advisor,codex-implementer,grok-implementer,glm-longcontext,dcode-implementer}.md` plus `~/.claude/workflows/race-and-judge.mjs`, then restore the prior skill/config through git.
+- Rollback: remove `~/.claude/agents/{fable-advisor,codex-implementer,grok-implementer,dcode-implementer}.md` plus `~/.claude/workflows/race-and-judge.mjs`, then restore the prior skill/config through git.
