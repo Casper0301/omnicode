@@ -556,6 +556,18 @@ class ApplySafetyTest(unittest.TestCase):
             self.assertIn("Grok 4.7", installed_rjv.read_text(encoding="utf-8"))
             self.assertIn("GPT-6.2 Astra", installed_rjv.read_text(encoding="utf-8"))
 
+            # A link that already resolves to the repo skill (SymLink tracks a relative one) is kept as written.
+            relative = os.path.relpath((ROOT / "skill").resolve(), omnicode.parent.resolve())
+            omnicode.unlink()
+            omnicode.symlink_to(relative)
+            again = subprocess.run(
+                [str(ROOT / "scripts" / "apply.sh")],
+                env={**os.environ, "HOME": str(home), "PATH": f"{home / '.local' / 'bin'}:/usr/bin:/bin"},
+                capture_output=True, text=True, timeout=20, check=False,
+            )
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertEqual(os.readlink(omnicode), relative)
+
 
 if __name__ == "__main__":
     unittest.main()

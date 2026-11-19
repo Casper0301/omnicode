@@ -92,7 +92,11 @@ cp "$REPO/workflows/race-and-judge.mjs" "$H/.claude/workflows/race-and-judge.mjs
 
 # Skills: the canonical Claude library is the only full skill library. Generic
 # discovery roots stay empty, and Omnicode exists only at its canonical path.
-ln -sfn "$REPO/skill" "$SKILL_LINK"
+# Keep a link that already resolves here: SymLink tracks a relative one that also works on
+# the VPS, and rewriting it as an absolute path would dirty that repository.
+if [[ "$(realpath "$SKILL_LINK" 2>/dev/null)" != "$(realpath "$REPO/skill")" ]]; then
+  ln -sfn "$REPO/skill" "$SKILL_LINK"
+fi
 mkdir -p "$H/.claude/skills/rjv"
 cp "$REPO/skills/rjv/SKILL.md" "$H/.claude/skills/rjv/SKILL.md"
 
